@@ -3259,17 +3259,10 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.resume_ability.set_markup(f"{self.tr('Resume Support:')} <b><span foreground='#e53935'>{self.tr('NO')}</span></b>")
 
     def is_connected(self):
-        ping_cmd = ["ping", "-c", "1", "-W", "1", "8.8.8.8"]
-        if os.name == 'nt':
-            ping_cmd = ["ping", "-n", "1", "-w", "1000", "8.8.8.8"]
         try:
-            subprocess.check_call(
-                ping_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            socket.create_connection(("8.8.8.8", 53), timeout=1.0)
             return True
-        except subprocess.CalledProcessError:
+        except OSError:
             return False
 
     def start_listener(self):
