@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=FlameGet
+Comment=Advanced Download Manager
+Exec=start-flameget %u
+Icon=io.github.C_Yassin.FlameGet
+Terminal=false
+Type=Application
+Categories=Network;FileTransfer;
+StartupNotify=true
+StartupWMClass=io.github.C_Yassin.FlameGet
+MimeType=x-scheme-handler/magnet;
+Keywords=download;manager;internet;video;youtube;aria2;accelerator;gtk;
