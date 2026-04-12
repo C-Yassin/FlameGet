@@ -4096,40 +4096,72 @@ class FlameGetManager(Gtk.Application):
         autostart_dir = os.path.join(GLib.get_user_config_dir(), "autostart")
         desktop_file = os.path.join(autostart_dir, "flameget.desktop")
 
-        if enable:
-            os.makedirs(autostart_dir, exist_ok=True)
-            if getattr(sys, 'frozen', False):
-                exec_cmd = f"{sys.executable}"
-            else:
-                script_path = os.path.abspath(sys.argv[0])
-                exec_cmd = f"{sys.executable} {script_path}"
-            
-            exec_cmd += " --start-minimized"
-            content = f"""
-                [Desktop Entry]
-                Type=Application
-                Name=FlameGet
-                Comment=FlameGet Download Manager
-                Exec={exec_cmd}
-                Icon=flameget
-                Terminal=false
-                Categories=Network;FileTransfer;
-                StartupNotify=false
-            """
+        if self.is_flatpak_env:
             try:
-                with open(desktop_file, "w") as f:
-                    f.write(content)
-                print(f"Autostart enabled: {desktop_file}")
-            except Exception as e:
-                print(f"Failed to enable autostart: {e}")
+                action_word = "enable" if enable else "disable"
+                
+                print(f"Requesting to {action_word} Flatpak Autostart...")
+                
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
+                options = {
+                    'autostart': GLib.Variant('b', enable), 
+                    'background': GLib.Variant('b', True) 
+                }
+                options_variant = GLib.Variant('a{sv}', options)
+
+                parent_window = GLib.Variant('s', "")
+                params = GLib.Variant.new_tuple(parent_window, options_variant)
+
+                bus.call_sync(
+                    "org.freedesktop.portal.Desktop",
+                    "/org/freedesktop/portal/desktop",
+                    "org.freedesktop.portal.Background",
+                    "RequestBackground",
+                    params,
+                    None,
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    None
+                )
+                print(f"Portal request to {action_word} autostart sent successfully.")
+                
+            except Exception as e:
+                print(f"Failed to {action_word} autostart portal via Gio: {e}")
         else:
-            if os.path.exists(desktop_file):
+            if enable:
+                os.makedirs(autostart_dir, exist_ok=True)
+                if getattr(sys, 'frozen', False):
+                    exec_cmd = f"{sys.executable}"
+                else:
+                    script_path = os.path.abspath(sys.argv[0])
+                    exec_cmd = f"{sys.executable} {script_path}"
+                
+                exec_cmd += " --start-minimized"
+                content = f"""
+                    [Desktop Entry]
+                    Type=Application
+                    Name=FlameGet
+                    Comment=FlameGet Download Manager
+                    Exec={exec_cmd}
+                    Icon=flameget
+                    Terminal=false
+                    Categories=Network;FileTransfer;
+                    StartupNotify=false
+                """
                 try:
-                    os.remove(desktop_file)
-                    print("Autostart disabled.")
+                    with open(desktop_file, "w") as f:
+                        f.write(content)
+                    print(f"Autostart enabled: {desktop_file}")
                 except Exception as e:
-                    print(f"Failed to disable autostart: {e}")
+                    print(f"Failed to enable autostart: {e}")
+            else:
+                if os.path.exists(desktop_file):
+                    try:
+                        os.remove(desktop_file)
+                        print("Autostart disabled.")
+                    except Exception as e:
+                        print(f"Failed to disable autostart: {e}")
 
     def on_folder_entry_changed(self, entry):
         path = entry.get_text().strip()
