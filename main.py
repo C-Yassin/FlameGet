@@ -1068,6 +1068,7 @@ class FlameGetManager(Gtk.Application):
         gen_box.append(auto_start)
 
         start_minimized = Gtk.CheckButton(label=self.tr("Start in Minimized Mode"))
+        start_minimized.set_sensitive(not self.is_flatpak_env)
         start_minimized.set_tooltip_text(self.tr("If checked, The downloads will begin in the background."))
         start_minimized.set_active(self.app_settings.get("start_in_minimize_mode", False))
         start_minimized.connect("toggled", lambda b: self.app_settings.update({"start_in_minimize_mode": b.get_active()}) or SaveManager.save_settings(self.app_settings))
