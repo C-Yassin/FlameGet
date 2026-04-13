@@ -60,7 +60,7 @@ For other Linux distributions, ensure you have the required dependencies install
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/C-Yassin/flameget.git
+    git clone https://github.com/C-Yassin/FlameGet.git
     cd flameget
     ```
 2.  Run the application (to test):
