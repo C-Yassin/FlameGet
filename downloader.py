@@ -428,7 +428,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 if self.referer: aria_cmd.append(f"--referer={self.referer}")
                 aria_cmd.append(url)
                 
-                proc = subprocess.Popen(aria_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                proc = subprocess.Popen(aria_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
 
                 try:
                     while time.time() - start < timeout:
@@ -624,7 +624,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                             generated_filename = match.group(1).strip()
                             if os.path.exists(generated_filename):
                                 cmd = [addOn.FireFiles.aria2c_path, "-S", generated_filename]
-                                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
                                 
                                 output = proc.stdout
                                 name = "Unknown"
@@ -2051,7 +2051,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if self.limit_speed > 0:
             cmd.append(f"--max-download-limit={int(self.limit_speed)}K")
 
-        self.aria_proc = subprocess.Popen(cmd)
+        self.aria_proc = subprocess.Popen(cmd, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
 
         def connect_aria():
             retries = 10
@@ -2121,11 +2121,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     total_size = self.file_size_bytes
                     start_progress = int((current_size / total_size) * 100) if total_size > 0 else 0
                     
-                    GLib.idle_add(self.est_time_label.set_markup,
-                        f"{self.tr('Downloaded:')} <span face='monospace'><b>{addOn.parse_size(current_size)}/{addOn.parse_size(total_size)}</b></span> | "
-                        f"{self.tr('Progress:')} <span face='monospace'><b>{start_progress}%</b></span> | "
-                        f"{self.tr('Speed:')} <span face='monospace'><b>--</b></span> | "
-                        f"ETA: <span face='monospace'><b>{self.eta_str}</b></span>"
+                    GLib.idle_add(
+                        self.est_time_label.set_markup,
+                        f"<span font_features='tnum=1'>"
+                        f"{self.tr('Downloaded:')} <b>{addOn.parse_size(current_size)}/{addOn.parse_size(total_size)}</b> | "
+                        f"{self.tr('Progress:')} <b>{start_progress}%</b> | "
+                        f"{self.tr('Speed:')} <b>--</b> | "
+                        f"ETA: <b>{self.eta_str}</b>"
+                        f"</span>"
                     )
                     
                 except OSError:
@@ -2361,11 +2364,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
                                 if self.animation_source_id is None:
                                     self.animation_source_id = GLib.timeout_add(16, self._animate_progress)
                             
-                            GLib.idle_add(self.est_time_label.set_markup,
-                                f"{self.tr('Downloaded:')} <span face='monospace'><b>{UI_size_str}/{self.UI_total_size}</b></span> | "
-                                f"{self.tr('Progress:')} <span face='monospace'><b>{self.progress:.0f}%</b></span> | "
-                                f"{self.tr('Speed:')} <span face='monospace'><b>{UI_speed}</b></span> | "
-                                f"ETA: <span face='monospace'><b>{self.eta_str}</b></span>"
+                            GLib.idle_add(
+                                self.est_time_label.set_markup,
+                                f"<span font_features='tnum=1'>"
+                                f"{self.tr('Downloaded:')} <b>{UI_size_str}/{self.UI_total_size}</b> | "
+                                f"{self.tr('Progress:')} <b>{self.progress:.0f}%</b> | "
+                                f"{self.tr('Speed:')} <b>{UI_speed}</b> | "
+                                f"ETA: <b>{self.eta_str}</b>"
+                                f"</span>"
                             )
                         else:
                             ver_percent = (ver_len / total_len) * 100
