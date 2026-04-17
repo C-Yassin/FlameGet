@@ -35,7 +35,7 @@ if os.name == 'nt':
 
 dynamic_binaries = []
 if os.name == 'nt':
-    dynamic_binaries.append(('binaries/aria.exe', 'binaries'))
+    dynamic_binaries.append(('binaries/aria2c.exe', 'binaries'))
     dynamic_binaries.append(('binaries/tray.exe', 'binaries'))
 else:
     dynamic_binaries.append(('binaries/tray.bin', 'binaries'))
