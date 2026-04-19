@@ -118,11 +118,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         self.conn = addOn.FireFiles.db.conn
         self.translations = SaveManager.load_translations()
-        self.port = random.randint(50000, 60000)
-        self.pid = os.getpid()
         self.url = url
         self.runtime_dir = addOn.UNITS.RUNTIME_DIR
         # Use port in socket name to prevent collision if multiple windows open in the same process
+        self.port = random.randint(50000, 60000)
+        self.pid = os.getpid()
         self.DOWNLOADER_SOCKET = os.path.join(self.runtime_dir, f"flameget_dl_{self.pid}_{self.port}.sock")
         self.has_updated_pid = False
         self.can_change_segment_count = True
@@ -3311,7 +3311,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def report_pid(self, can_delete="", msg=""):        
         try:
             msg_progress = msg if msg.strip() != "" else str(self.progress) if self.progress else "0"
-            message = f"pid:{self.FileName}:{msg_progress}:{self.pid}:{can_delete}"
+            message = f"pid:{self.FileName}:{msg_progress}:{self.pid}:{self.port}:{can_delete}"
 
             if os.name != 'nt':
                 if os.path.exists(TRAY_SOCKET_PATH):
