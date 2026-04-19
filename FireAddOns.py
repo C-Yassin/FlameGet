@@ -1,5 +1,5 @@
 import importlib, sys, re, os
-import shutil, tempfile, psutil
+import shutil, psutil
 
 import gi
 gi.require_version('Gtk', '4.0')
@@ -88,10 +88,19 @@ class _FileManager():
 FireFiles = _FileManager()
 
 class UNITS():
+    def get_temp_dir():
+        if os.name == 'nt':
+            base_data = os.getenv('LOCALAPPDATA', os.path.expanduser('~'))
+            RUNTIME_DIR = os.path.join(base_data, "flameget", "run")
+            os.makedirs(RUNTIME_DIR, exist_ok=True)
+            return RUNTIME_DIR
+        else:
+            return os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        
     SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
     
-    RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", tempfile.gettempdir() if os.name == 'nt' else "/tmp")
-
+    RUNTIME_DIR = get_temp_dir()
+   
     MULT = {
         "b": 1, "byte": 1, "bytes": 1,
 

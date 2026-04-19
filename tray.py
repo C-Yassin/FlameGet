@@ -3,7 +3,7 @@ import socket
 import signal
 import os, sys
 import json
-import threading, tempfile
+import threading
 
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 
@@ -12,15 +12,9 @@ if os.name == 'nt':
     from PIL import Image
 else:
     if is_flatpak_env:
-        try:
-            from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
-            from PyQt5.QtGui import QIcon, QPainter, QColor
-            from PyQt5.QtCore import Qt, QObject, pyqtSignal
-        except ImportError:
-            print("PyQt5 not installed in Flatpak. Falling back to GTK (which may fail).")
-            is_flatpak_env = False
-    
-    if not is_flatpak_env:
+        # soon...
+        pass
+    else:
         import gi
         gi.require_version('Gtk', '3.0')
         gi.require_version('GdkPixbuf', '2.0')
@@ -32,11 +26,19 @@ WINDOWS_TRAY_PORT = 18598
 WINDOWS_MAIN_PORT = 18597
 APP_ID = 'flameget-manager-tray'
 
-runtime_dir = os.environ.get("XDG_RUNTIME_DIR", tempfile.gettempdir() if os.name == 'nt' else "/tmp")
+def get_temp_dir():
+    if os.name == 'nt':
+        base_data = os.getenv('LOCALAPPDATA', os.path.expanduser('~'))
+        RUNTIME_DIR = os.path.join(base_data, "flameget", "run")
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        return RUNTIME_DIR
+    else:
+        return os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+
+runtime_dir = get_temp_dir()
 MAIN_APP_SOCKET = os.path.join(runtime_dir, "flameget_dm_tray.sock")
 TRAY_SOCKET_PATH = os.path.join(runtime_dir, "flameget_tray_listener.sock")
 
-# first of all fuck the tray system, this shit is outdated! like how tf it doesn't support GTK4! i hate this even the colors....ugh painful...
 class TrayApp:
     def __init__(self):
         self.pid_menu_items = {}
@@ -77,7 +79,8 @@ class TrayApp:
             self.setup_windows_tray()
             
         elif self.is_flatpak:
-            self.setup_qt_tray()
+            # soon...
+            pass
             
         else:
             if self.app_settings.get("language") == "ar":
@@ -108,70 +111,6 @@ class TrayApp:
             
         return os.path.join(base_path, relative_path)
 
-    def setup_qt_tray(self):
-        self.qt_app = QApplication.instance() or QApplication(sys.argv)
-        self.qt_app.setQuitOnLastWindowClosed(False)
-
-        if self.app_settings.get("language") == "ar":
-            self.qt_app.setLayoutDirection(Qt.RightToLeft)
-
-        class SignalBridge(QObject):
-            update_signal = pyqtSignal(str, str, str, str)
-
-        self.qt_bridge = SignalBridge()
-        self.qt_bridge.update_signal.connect(self.handle_pid_update)
-
-        self.tray_icon = QSystemTrayIcon(self.qt_app)
-        
-        self.tray_icon.setIcon(self.get_qt_icon("folder-download-symbolic", "folder-download"))
-
-        self.qt_menu = QMenu()
-        self.qt_dynamic_menus = {}
-
-        self.qt_toggle_action = QAction(self.tr("Show/Hide"), self.qt_menu)
-        self.qt_toggle_action.setIcon(self.get_qt_icon("xsi-view-reveal-symbolic", "view-reveal-symbolic"))
-        self.qt_toggle_action.setIconVisibleInMenu(True)
-        self.qt_toggle_action.triggered.connect(lambda: self.send_command("toggle"))
-        self.qt_menu.addAction(self.qt_toggle_action)
-
-        self.qt_quit_action = QAction(self.tr("Quit"), self.qt_menu)
-        self.qt_quit_action.setIcon(self.get_qt_icon("xsi-application-exit-symbolic", "application-exit-symbolic"))
-        self.qt_quit_action.setIconVisibleInMenu(True)
-        self.qt_quit_action.triggered.connect(self.on_quit)
-        self.qt_menu.addAction(self.qt_quit_action)
-
-        self.tray_icon.setContextMenu(self.qt_menu)
-        self.tray_icon.show()
-
-    def get_qt_icon(self, icon_name, fallback_name):        
-        icon = None
-        
-        possible_file = os.path.join(self.icons_dir, icon_name + ".svg")
-        if getattr(self, 'is_compiled', False) and not os.path.exists(possible_file):
-            possible_file = os.path.join(self.install_dir, icon_name + ".svg")
-
-        if os.path.exists(possible_file):
-            icon = QIcon(possible_file)
-        else:
-            icon = QIcon.fromTheme(icon_name)
-            if icon.isNull():
-                icon = QIcon.fromTheme(fallback_name)
-                
-        if icon.isNull():
-            return QIcon()
-
-        colored_icon = QIcon()
-        for size in [16, 22, 24, 32]:
-            pixmap = icon.pixmap(size, size)
-            if not pixmap.isNull():
-                painter = QPainter(pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-                painter.fillRect(pixmap.rect(), QColor("white"))
-                painter.end()
-                colored_icon.addPixmap(pixmap)
-                
-        return colored_icon
-
     def setup_windows_tray(self):
         possible_file = self.get_resource_path("flameget.png")
         if os.path.exists(possible_file):
@@ -183,19 +122,24 @@ class TrayApp:
         self.icon = pystray.Icon("FlameGet", image, "FlameGet", menu=pystray.Menu(self._generate_windows_menu))
         
     def _generate_windows_menu(self):
-        def make_toggle_cb(p):
-            return lambda icon, item: self.toggle(None, p)
+        def make_toggle_cb(p, pt):
+            return lambda icon, item: self.toggle(None, p, pt)
             
-        def make_stop_cb(p):
-            return lambda icon, item: self.send_signal_action(None, p, signal.SIGTERM)
+        def make_pause_cb(p, pt):
+            return lambda icon, item: self.send_signal_action(None, p, pt, getattr(signal, "SIGUSR1", 10))
+
+        def make_stop_cb(p, pt):
+            return lambda icon, item: self.send_signal_action(None, p, pt, signal.SIGTERM)
 
         try:
             safe_data = dict(self.windows_pid_data)
             
-            for pid, label in safe_data.items():
+            # FIXED: Correctly unpack the tuple key!
+            for (pid, port), label in safe_data.items():
                 submenu = pystray.Menu(
-                    pystray.MenuItem(self.tr("Show/Hide Window"), make_toggle_cb(pid)),
-                    pystray.MenuItem(self.tr("Stop Download"), make_stop_cb(pid)) 
+                    pystray.MenuItem(self.tr("Show/Hide Window"), make_toggle_cb(pid, port)),
+                    pystray.MenuItem(self.tr("Pause / Resume"), make_pause_cb(pid, port)),
+                    pystray.MenuItem(self.tr("Stop Download"), make_stop_cb(pid, port)) 
                 )
                 yield pystray.MenuItem(str(label), submenu)
 
@@ -203,7 +147,6 @@ class TrayApp:
                 yield pystray.Menu.SEPARATOR
                 
             yield pystray.MenuItem(self.tr("Show/Hide Window"), lambda icon, item: self.send_command("toggle"), default=True)
-            
             yield pystray.MenuItem(self.tr("Quit"), lambda icon, item: self.on_quit())
 
         except Exception as e:
@@ -331,21 +274,21 @@ class TrayApp:
                             self.on_quit()
                         elif cmd.startswith("pid:"):
                             try:
-                                parts = cmd.split(":", 4) 
+                                parts = cmd.split(":", 5) 
 
-                                if len(parts) >= 5:
-                                    _, file_name, progress, proc_id, status = parts
+                                if len(parts) >= 6: # FIXED: 6 parts now (pid, name, prog, id, port, status)
+                                    _, file_name, progress, proc_id, proc_port, status = parts
                                     
                                     if os.name == 'nt':
-                                        self.handle_pid_update(proc_id, file_name, progress, status)
+                                        self.handle_pid_update(proc_id, proc_port, file_name, progress, status)
                                     elif self.is_flatpak:
-                                        # Thread-safe Qt UI Update via Signal
-                                        self.qt_bridge.update_signal.emit(str(proc_id), str(file_name), str(progress), str(status))
+                                        # soon...
+                                        pass
                                     else:
-                                        # Thread-safe GTK UI Update via Idle_add
+                                        # FIXED: Pass proc_port to GTK idle_add
                                         GLib.idle_add(
                                             self.handle_pid_update, 
-                                            proc_id, file_name, progress, status
+                                            proc_id, proc_port, file_name, progress, status
                                         )
                                 else:
                                     print(f"DEBUG Not enough parts! len={len(parts)}")
@@ -357,7 +300,7 @@ class TrayApp:
                     if self.running:
                         print(f"Tray server error: {e}")
 
-    def handle_pid_update(self, proc_id, filename, progress, status):
+    def handle_pid_update(self, proc_id, proc_port, filename, progress, status):
         self.send_command("update_footer")
         
         status_clean = status
@@ -376,9 +319,9 @@ class TrayApp:
         
         if os.name == 'nt':
             if status_clean == "delete":
-                self.windows_pid_data.pop(proc_id, None)
+                self.windows_pid_data.pop((proc_id, proc_port), None)
             else:
-                self.windows_pid_data[proc_id] = label_text
+                self.windows_pid_data[(proc_id, proc_port)] = label_text
                 
             if hasattr(self, 'icon'):
                 try:
@@ -387,35 +330,8 @@ class TrayApp:
                     pass
                     
         elif getattr(self, 'is_flatpak', False):
-            from PyQt5.QtWidgets import QMenu, QAction
-            if status == "delete":
-                if proc_id in self.qt_dynamic_menus:
-                    menu_to_remove = self.qt_dynamic_menus[proc_id]
-                    self.qt_menu.removeAction(menu_to_remove.menuAction())
-                    del self.qt_dynamic_menus[proc_id]
-                return
-
-            if proc_id in self.qt_dynamic_menus:
-                self.qt_dynamic_menus[proc_id].setTitle(label_text)
-            else:
-                submenu = QMenu(label_text, self.qt_menu)
-                
-                show_action = QAction(self.tr("Show/Hide Window"), submenu)
-                show_action.triggered.connect(lambda checked, p=proc_id: self.toggle(None, p))
-                submenu.addAction(show_action)
-                
-                if hasattr(signal, "SIGUSR1"):
-                    pause_action = QAction(self.tr("Pause / Resume"), submenu)
-                    pause_action.triggered.connect(lambda checked, p=proc_id: self.send_signal_action(None, p, signal.SIGUSR1))
-                    submenu.addAction(pause_action)
-                
-                stop_action = QAction(self.tr("Stop Download"), submenu)
-                stop_action.triggered.connect(lambda checked, p=proc_id: self.send_signal_action(None, p, signal.SIGTERM))
-                submenu.addAction(stop_action)
-                
-                self.qt_menu.insertMenu(self.qt_toggle_action, submenu)
-                self.qt_dynamic_menus[proc_id] = submenu
-                
+            # soon...
+            pass
         else:
             if status == "delete":
                 if proc_id in self.pid_menu_items:
@@ -436,16 +352,16 @@ class TrayApp:
                 submenu = Gtk.Menu()
                 
                 item_show = Gtk.MenuItem(label=self.tr("Show/Hide Window"))
-                item_show.connect('activate', self.toggle, proc_id)
+                item_show.connect('activate', self.toggle, proc_id, proc_port)
                 submenu.append(item_show)
                 
                 if hasattr(signal, "SIGUSR1"):
                     item_pause = Gtk.MenuItem(label=self.tr("Pause / Resume"))
-                    item_pause.connect('activate', self.send_signal_action, proc_id, signal.SIGUSR1)
+                    item_pause.connect('activate', self.send_signal_action, proc_id, proc_port, signal.SIGUSR1)
                     submenu.append(item_pause)
                 
                 item_stop = Gtk.MenuItem(label=self.tr("Stop Download"))
-                item_stop.connect('activate', self.send_signal_action, proc_id, signal.SIGTERM)
+                item_stop.connect('activate', self.send_signal_action, proc_id, proc_port, signal.SIGTERM)
                 submenu.append(item_stop)
                 
                 submenu.show_all()
@@ -464,24 +380,29 @@ class TrayApp:
                 self.header_item.set_visible(True)
                 self.dynamic_separator.set_visible(True)
 
-    def send_signal_action(self, widget, pid_str, sig):
+    def send_signal_action(self, widget, pid_str, port_str, sig):
         try:
             pid = int(pid_str)
-            print(f"Sent signal {sig} to Process {pid}")
+            port = int(port_str)
+            print(f"Sent signal {sig} to Process {pid} with port {port}")
 
             if os.name == 'nt':
-                downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}.sock")
-                self.send_windows_command("stop", target_socket=downloader_sock)
+                downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
+                if sig == getattr(signal, "SIGUSR1", 10): 
+                    self.send_windows_command("pause", target_socket=downloader_sock) 
+                elif sig == signal.SIGTERM:
+                    self.send_windows_command("stop", target_socket=downloader_sock)
             else:
                 os.kill(pid, sig)
+            
             if sig == signal.SIGTERM:
-                self.handle_pid_update(pid_str, "", 0, "delete")
+                self.handle_pid_update(pid_str, port_str, "", 0, "delete")
                 
         except ValueError:
-            print(f"Invalid PID: {pid_str}")
+            print(f"Invalid PID or Port: {pid_str} / {port_str}")
         except ProcessLookupError:
             print(f"Process {pid_str} not found (already closed?)")
-            self.handle_pid_update(pid_str, "", 0, "delete")
+            self.handle_pid_update(pid_str, port_str, "", 0, "delete")
         except Exception as e:
             print(f"Failed to send signal: {e}")
 
@@ -501,13 +422,13 @@ class TrayApp:
         except OSError as e:
             print(f"Socket error while sending command: {e}")
 
-    def toggle(self, widget, pid):
+    def toggle(self, widget, pid, port):
         print(f"Toggling PID: {pid}")
         if os.name == 'nt':
-            downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}.sock")
+            downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
             self.send_windows_command("toggle_pid", target_socket=downloader_sock)
             return
-        downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}.sock")
+        downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
         self.send_command("toggle_pid", target_socket=downloader_sock)
 
     def send_windows_command(self, cmd, target_socket=None):
@@ -539,11 +460,8 @@ class TrayApp:
         if os.name == 'nt':
             self.icon.stop()
         elif getattr(self, 'is_flatpak', False):
-            if os.path.exists(TRAY_SOCKET_PATH):
-                try: os.unlink(TRAY_SOCKET_PATH)
-                except: pass
-            from PyQt5.QtWidgets import QApplication
-            QApplication.quit()
+            # soon...
+            pass
         else:
             if os.path.exists(TRAY_SOCKET_PATH):
                 try: os.unlink(TRAY_SOCKET_PATH)
@@ -607,9 +525,6 @@ def main():
     
     if os.name == 'nt':
         app.icon.run()
-    elif getattr(app, 'is_flatpak', False):
-        from PyQt5.QtWidgets import QApplication
-        sys.exit(QApplication.instance().exec_())
     else:
         Gtk.main()
 
