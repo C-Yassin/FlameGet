@@ -178,7 +178,7 @@ class TrayApp:
 
         item_quit = self.create_icon_menu_item(
             self.tr("Quit"), 
-            "xsi-application-exit-symbolic",
+            "xsi-window-close-symbolic",
             "application-exit-symbolic", 
             self.on_quit
         )
