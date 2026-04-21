@@ -2503,7 +2503,7 @@ class FlameGetManager(Gtk.Application):
         column_view = Gtk.ColumnView(model=selection_model)
         column_view.set_hexpand(True)
         
-        if self.get_windowing_system() == "wayland" or os.name == "nt":
+        if self.get_windowing_system() == "wayland" or self.get_windowing_system() == "mint-x11" or os.name == "nt":
             column_view.add_css_class("wayland-headers")
 
         sort_model.set_sorter(column_view.get_sorter())
@@ -2760,7 +2760,7 @@ class FlameGetManager(Gtk.Application):
             hitbox = Gtk.Box()
             hitbox.set_hexpand(True)
             hitbox.set_vexpand(True)
-            if self.get_windowing_system() == "wayland" or os.name == "nt":
+            if self.get_windowing_system() == "wayland" or self.get_windowing_system() == "mint-x11" or os.name == "nt":
                 user_padding = self.app_settings.get("cells_size", 1) 
                 custom_css = f".wayland-fix {{ padding: {user_padding}px; }}"
                 
@@ -4459,9 +4459,17 @@ class FlameGetManager(Gtk.Application):
 
         except Exception:
             return False
-
     def get_windowing_system(self):
         session_type = os.environ.get('XDG_SESSION_TYPE', 'Unknown')
+        # If the session is x11 it doesn't work in Arch based distros but for Linux Mint it does? weird but i'm sure this will be a problem in future...
+        if session_type.lower() == 'x11':
+            try:
+                with open('/etc/os-release', 'r') as f:
+                    os_data = f.read()
+                if 'ID=linuxmint' in os_data:
+                    return 'mint-x11'
+            except FileNotFoundError:
+                pass
         return session_type
 
     def extract_magnet(self, text):
