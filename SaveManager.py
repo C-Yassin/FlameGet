@@ -63,7 +63,11 @@ def load_css(theme=""):
         else:
             print("CSS Load Warning: No GTK display/screen available.")
 
-        global_style_provider = css_provider 
+        global_style_provider = css_provider
+        settings = Gtk.Settings.get_default()
+        if settings:
+            settings.set_property("gtk-theme-name", "Adwaita")
+            settings.set_property("gtk-application-prefer-dark-theme", True if theme == "Dark" else False)
         
     except Exception as e:
         print(f"CSS Load Error: {e}")
