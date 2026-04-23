@@ -87,11 +87,11 @@ You can download the browser extension to integrate FlameGet natively with your 
 
 ## Screenshots
 
-<div align="center"\>
+<div display="flex" align="center"\>
   <picture\>
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/C-Yassin/Fireweb/blob/main/screenshot_5.png"\>
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/C-Yassin/Fireweb/blob/main/screenshot_4.png"\>
     <img alt="FlameGet Interface" src="https://github.com/C-Yassin/Fireweb/blob/main/screenshot_5.png"\>
+    <br>
+    <img alt="FlameGet Interface" src="https://github.com/C-Yassin/Fireweb/blob/main/screenshot_4.png"\>
   </picture\>
 </div\>
 
