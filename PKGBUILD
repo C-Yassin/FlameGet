@@ -4,7 +4,7 @@ pkgver=1.0.0
 pkgrel=1
 pkgdesc="A GTK4 Download Manager wrapping Aria2, Curl, and YT-DLP"
 arch=('any')
-url="https://github.com/C-Yassin/flameget"
+url="https://github.com/C-Yassin/FlameGet"
 license=('MIT' 'LGPL3')
 depends=(
     'python'
@@ -28,7 +28,6 @@ source=(
     "downloader.py"
     "browser_context_menu_handler.py"
     "Toast.py"
-    "server.py"
     "translations.json"
     "dark_style.css"
     "light_style.css"
@@ -38,9 +37,7 @@ source=(
     "flameget.sh"
     "SaveManager.py"
     'FireAddOns.py'
-    "build.py"
     "build.sh"
-    "xsi-application-exit-symbolic.svg"
     "xsi-view-reveal-symbolic.svg"
     "xsi-x-office-document-symbolic.svg"
     "xsi-view-refresh-symbolic.svg"
@@ -79,27 +76,24 @@ source=(
     "xsi-folder-pictures-symbolic.svg"
     "xsi-window-close-symbolic.svg"
     "flameget_about_dialog.png"
-
+    "io.github.C_Yassin.FlameGet.metainfo.xml"
 )
 
-sha256sums=('5b8fbd97086a00ecf1dcdedfd24fdc120bd89ae93495206f306ddbc1a319afa6'
-            '3aac1bfdc42a1c32822b0e05cb0de2f3165e2a3e6584a0e4aa5bc8f34d46a9f9'
-            '699b951746c8b8341c488175cac977e7751548c31b281db39b88dd9a6c0b1d16'
-            '53ac4bb9efbffb3fe7e35e4de5e761d16d1aafed1b029abccbf8f3f948058e8c'
+sha256sums=('f48b0615e1fdd8e3f28fc56c71fa930bb24f59d754d64fec8be3d5252668d7d6'
+            '0493a516e031eb46449e53e63abffcd57f22dc60dd1d726bc2dd27e037a9faa3'
+            'da64f50fa8fb2faa476b610c1c58285046ec0d256f58aa4fd8de66ecd30c328c'
+            '99cbb9bdd6ceccf75a939f43a0a325dece3ea8e56f0dc03fa4832a2bb7726bd9'
             'd4ba9a8f986d69f512dbfdbf594f51112b31ce1df16a9e481b70df5107544319'
-            'c348db83a7300411e14f918bbbda981a8973694a8f28e3cacd81806646c45731'
             '13bacdaa507383dbac332316d3998884e05e3f6868480529b0ab381b013285ac'
             'cea7e5f5046ebec31573ff1a9645a6f119cb7f676e1c6bd6187de484df6fe3fc'
             'f592a9ed655c99198beae352c46e6980b50a2c572ee124b991a56cc9e079a2db'
             '152c85a349918671498e2515ac24503bed95626da514a70dd64a18d7646d6ca6'
             '760f41ae9df477da38e40446933c4e930af66980fc1ad84f34948852ff71cadf'
-            '2818817e01d043a10a237add18d06bc8bfa7e24fe3edf4a4201cad86d8a7e12e'
+            '801714ce164699baae490aae1abba2c52ac4b4459c196b6dab7e6e1949fcba44'
             'b7589ea018f5c068a7c0eed41bde61fd6b705354dbd4a51d0f989c589068dae0'
             'f6b781f67908e9d02223eb9730995a8cc91393c3f6b0417fb3d98646353a8689'
-            'b0682a8c8c200fec43b2ce2ce55af8070e48636df7f814528536e2897c145eeb'
-            'cf72ade0f2397f38446eb7dc774ce25d7ab4a1c9e1497b8283859475085b67c7'
-            'ecd5a7f74fc0b0bf7a36ef9bb4f81d055de89cd990b1c0b2557cc5c342891f30'
-            'c1a0c1ca2e8f15fea2645466e6aaa6f5eb1a73fd3942dc001d0be4bcab39fd9f'
+            '7085d23fdc10f85e0c00f9624464a1dd2f0b929695b736b07b8e159e7e07d729'
+            'c4d7aea24957d76f67c819721d2c892316b276b5503a75b647f745e59153c600'
             'ec98bf51f293436514a688861fa1074d48ba8e4286efa8f1dae9c3715aeed362'
             '60d7586fe076ea552b2e5d07490d73f91c23f37ae75fa400f0ba55724e2c1f53'
             'e87598352bb5863da8eda0768a2093628bbbc5dcc11b3193738f1bd75b6c3c20'
@@ -145,31 +139,35 @@ package() {
     install -d "$pkgdir/usr/bin"
     install -d "$pkgdir/usr/share/applications"
     install -d "$pkgdir/usr/share/icons/hicolor/scalable/apps"
-
+    install -d "$pkgdir/usr/share/metainfo"
     cd "$srcdir"
-    
+
     for file in *; do
         [ -f "$file" ] || continue
-        
+
         case "$file" in
             xsi-*.svg)
-                install -m644 "$file" "$pkgdir/usr/lib/$pkgname/icons/" 
+                install -m644 "$file" "$pkgdir/usr/lib/$pkgname/icons/"
                 ;;
-                
+
             *.py|*.json|*.css)
                 install -m644 "$file" "$pkgdir/usr/lib/$pkgname/"
                 ;;
-                
+
             flameget.sh)
                 install -m755 "$file" "$pkgdir/usr/bin/flameget"
                 ;;
-                
+
             *.desktop)
                 install -m644 "$file" "$pkgdir/usr/share/applications/"
                 ;;
-                
+
             flameget.svg)
                 install -m644 "$file" "$pkgdir/usr/share/icons/hicolor/scalable/apps/flameget.svg"
+                ;;
+
+            *.metainfo.xml)
+                install -m644 "$file" "$pkgdir/usr/share/metainfo/"
                 ;;
         esac
     done
