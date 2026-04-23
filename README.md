@@ -34,6 +34,8 @@
 
 Please visit the [Project Website](https://c-yassin.github.io/Fireweb/) for more info.
 
+**Note: Because FlameGet is a new open-source app, Windows SmartScreen may flag the installer. Click 'More info' and 'Run anyway'**
+
 ## Installation
 
 ### FlatHub
