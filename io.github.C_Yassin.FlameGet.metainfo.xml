@@ -4,13 +4,16 @@
     <metadata_license>FSFAP</metadata_license>
     <project_license>MIT</project_license>
     <name>FlameGet</name>
-    <summary>A GTK4 Download Manager wrapping Aria2, Curl, and YT-DLP</summary>
+    <summary>Accelerate your downloads, grab videos from your favorite sites, and manage everything from a beautiful, modern interface.</summary>
     <description>
         <p>A blazing fast, lightweight downloader built for speed and reliability. From native browser integration and full torrent support to auto-merging high-quality media, FlameGet handles it all seamlessly.</p>
     </description>
     <launchable type="desktop-id">io.github.C_Yassin.FlameGet.desktop</launchable>
     <content_rating type="oars-1.1"/>
-    
+    <branding>
+      <color type="primary" scheme_preference="light">#ee612a</color>
+      <color type="primary" scheme_preference="dark">#fc9d0f</color>
+    </branding>
     <screenshots>
         <screenshot type="default">
             <caption>The main FlameGet download interface</caption>
