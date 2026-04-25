@@ -16,6 +16,7 @@ if __name__ == '__main__':
 import gi, signal, subprocess, shutil, time, json, re, socket, threading, tempfile
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gio, GObject, Gdk, GLib, Graphene, Pango
+from urllib.parse import urlparse, unquote, parse_qs
 
 import Toast as toast
 import FireAddOns as addOn
@@ -2070,7 +2071,6 @@ class FlameGetManager(Gtk.Application):
         If is_torrent_ready (which is a silly name for a torrent file but uhh it does the jobe done) is provided, it uses that file.
         Otherwise, it attempts to download metadata from the magnet link first.
         """
-        from urllib.parse import urlparse, parse_qs
         self.trackers_store.remove_all()
         self.torrent_files_data = []
 
@@ -3828,7 +3828,6 @@ class FlameGetManager(Gtk.Application):
         if url.startswith("magnet:?") or url.endswith(".torrent"):
             fallback = "torrent_folder"
             
-        from urllib.parse import urlparse, unquote
         path = unquote(os.path.basename(urlparse(url).path)) or fallback
         print(path)
         os.path.basename(path)
@@ -3991,7 +3990,6 @@ class FlameGetManager(Gtk.Application):
                         m = re.search(r'filename=["\']?([^"\';]+)["\']?', cd)
                         if m: filename = m.group(1)
                     else:
-                        from urllib.parse import urlparse
                         parsed = urlparse(response.url)
                         name = os.path.basename(parsed.path)
                         if name: filename = name
