@@ -4,9 +4,9 @@
     <metadata_license>FSFAP</metadata_license>
     <project_license>MIT</project_license>
     <name>FlameGet</name>
-    <summary>Accelerate your downloads, grab videos from your favorite sites, and manage everything from a beautiful, modern interface.</summary>
+    <summary>Fast, modern download manager.</summary>
     <description>
-        <p>A blazing fast, lightweight downloader built for speed and reliability. From native browser integration and full torrent support to auto-merging high-quality media, FlameGet handles it all seamlessly.</p>
+        <p> Accelerate your downloads, grab videos from your favorite sites, and manage everything from a beautiful, modern interface.</p>
     </description>
     <launchable type="desktop-id">io.github.C_Yassin.FlameGet.desktop</launchable>
     <content_rating type="oars-1.1"/>
