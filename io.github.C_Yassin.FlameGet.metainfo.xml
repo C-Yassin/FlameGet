@@ -11,8 +11,8 @@
     <launchable type="desktop-id">io.github.C_Yassin.FlameGet.desktop</launchable>
     <content_rating type="oars-1.1"/>
     <branding>
-      <color type="primary" scheme_preference="light">#ee612a</color>
-      <color type="primary" scheme_preference="dark">#fc9d0f</color>
+      <color type="primary" scheme_preference="light">#f4f4f4</color>
+      <color type="primary" scheme_preference="dark">#232323</color>
     </branding>
     <screenshots>
         <screenshot type="default">
