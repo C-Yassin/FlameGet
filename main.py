@@ -17,7 +17,6 @@ import gi, signal, subprocess, shutil, time, json, re, socket, threading, tempfi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gio, GObject, Gdk, GLib, Graphene, Pango
 from urllib.parse import urlparse, unquote, parse_qs
-
 import Toast as toast
 import FireAddOns as addOn
 import SaveManager
@@ -421,7 +420,7 @@ class FlameGetManager(Gtk.Application):
         else:
             self.window.present()
         
-        self.check_and_install_ffmpeg(self.window, self.install_dir)
+        self.check_and_install_dependencies(self.window)
         self.apply_cursor_recursive(self.window, "pointer")
         
         GLib.idle_add(self.update_stats_labels)
@@ -441,7 +440,7 @@ class FlameGetManager(Gtk.Application):
             path = value.get_path()
             print(path)
             if path and path.lower().endswith(".torrent"):
-                self.add_url_button(None, is_torrent_ready=path)
+                self.add_url_button(None, local_torrent_path=path)
                 self.entry_url.set_text(path)
                 return True
         return False
@@ -1484,7 +1483,7 @@ class FlameGetManager(Gtk.Application):
         text = entry.get_text().lower()
         self.search_text = text
 
-    def add_url_button(self, btn, is_torrent_ready=None):
+    def add_url_button(self, btn, local_torrent_path=None):
         self.add_url_dialog = Gtk.Dialog(title=self.tr("New Download"), transient_for=self.window, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, self.add_url_dialog.get_title(), self.app_settings.get("theme_mode"))
 
@@ -1792,8 +1791,8 @@ class FlameGetManager(Gtk.Application):
         self.btn_download = Gtk.Button(label=self.tr("Download Now"))
         GLib.idle_add(self.btn_download.set_hexpand, True)
         GLib.idle_add(self.btn_download.add_css_class, "green-btn")
-        self.btn_download.connect("clicked", self.on_start_download_clicked, self.add_url_dialog, is_torrent_ready)
-        self.entry_url.connect("activate", self.on_start_download_clicked, self.add_url_dialog, is_torrent_ready)
+        self.btn_download.connect("clicked", self.on_start_download_clicked, self.add_url_dialog, local_torrent_path)
+        self.entry_url.connect("activate", self.on_start_download_clicked, self.add_url_dialog, local_torrent_path)
         self.entry_dir.connect("changed", self.on_folder_entry_changed)
 
         row_actions.append(self.btn_queue)
@@ -1988,7 +1987,7 @@ class FlameGetManager(Gtk.Application):
 
         self.on_url_entry_changed(entry)
         
-    def on_start_download_clicked(self, btn, dialog, is_torrent_ready):
+    def on_start_download_clicked(self, btn, dialog, local_torrent_path):
         """Determines which logic to run based on the visible stack page."""
         url = self.entry_url.get_text().strip()
         if url == "":
@@ -2000,6 +1999,9 @@ class FlameGetManager(Gtk.Application):
             is_audio = (self.dd_mode.get_selected() == 1)
             quality_mod = self.dd_quality.get_model().get_string(self.dd_quality.get_selected())
             download_playlist = self.check_playlist.get_active()
+            include_subs = self.check_subs.get_active()
+            include_thumb = self.check_thumb.get_active()
+            
             selected_item = self.dd_fmt.get_selected_item()
             ext = ""
             if selected_item:
@@ -2007,13 +2009,13 @@ class FlameGetManager(Gtk.Application):
             print(f"Starting YouTube DL: {url} | Audio: {is_audio} | Playlist: {download_playlist}")
             threading.Thread(
                 target=self.start_yt_dlp_download_url,
-                args=(dialog, ext, is_audio, quality_mod, download_playlist),
+                args=(dialog, ext, is_audio, quality_mod, download_playlist, include_subs, include_thumb),
                 daemon=True
             ).start()
         elif mode == "torrent_prompt":
             threading.Thread(
                 target=self.fetch_torrent_metadata,
-                args=(url, is_torrent_ready),
+                args=(url, local_torrent_path),
                 daemon=True
             ).start()
             GLib.idle_add(self.btn_download.set_sensitive, False)
@@ -2065,46 +2067,44 @@ class FlameGetManager(Gtk.Application):
             self.add_url_dialog = None
             dialog.destroy()
 
-    def fetch_torrent_metadata(self, url, is_torrent_ready=None):
+    def fetch_torrent_metadata(self, url, local_torrent_path=None):
         """
         Main entry point to fetch metadata. 
-        If is_torrent_ready (which is a silly name for a torrent file but uhh it does the jobe done) is provided, it uses that file.
+        If local_torrent_path is provided, it uses that file.
         Otherwise, it attempts to download metadata from the magnet link first.
         """
         self.trackers_store.remove_all()
         self.torrent_files_data = []
 
-        if is_torrent_ready == None:
-            print("is_torrent_ready", is_torrent_ready)
+        if local_torrent_path is None:
             parsed = urlparse(url)
-            qs = parse_qs(parsed.query)
-            trackers = qs.get("tr", [])
+            trackers = parse_qs(parsed.query).get("tr", [])
             for tr in trackers:
-                t_item = TrackerItem(tr)
-                self.trackers_store.append(t_item)
+                self.trackers_store.append(TrackerItem(tr))
             self.update_tracker_count()
 
         try:
-            torrent_path = is_torrent_ready
-            print("is_torrent_ready", torrent_path)
-            if torrent_path is None:
-                torrent_path = self._download_magnet_metadata(url)
-                if not torrent_path:
+            if local_torrent_path is None:
+                local_torrent_path = self._download_magnet_metadata(url)
+                
+                if not local_torrent_path:
                     print("Metadata not found. The torrent might be dead or timeout was too short.")
-                    GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Metadata was not found. The torrent might be dead or timeout was too short"))
+                    GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Metadata was not found. Torrent dead or timed out."))
                     return
 
-            if os.path.exists(torrent_path):
-                self._parse_torrent_file(torrent_path)
+            if os.path.exists(local_torrent_path):
+                self._parse_torrent_file(local_torrent_path)
             else:
-                print(f"Error: Torrent file not found at {torrent_path}")
+                print(f"Error: Torrent file not found at {local_torrent_path}")
 
         except subprocess.TimeoutExpired:
-            GLib.idle_add(self.lbl_meta_size.set_text, self.tr("Size: Timeout (Metadata not found)"))
+            GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Size: Timeout (Metadata not found)"))
             print("The process timed out while fetching metadata.")
         except subprocess.CalledProcessError as e:
+            GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Size: Timeout (Metadata not found)"))
             print(f"Aria2c crashed or returned an error: {e}")
         except Exception as e:
+            GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Size: Timeout (Metadata not found)"))
             print(f"Metadata error: {e}")
 
     def _download_magnet_metadata(self, url):
@@ -3447,17 +3447,11 @@ class FlameGetManager(Gtk.Application):
         except:
             print("Starting failed")
 
-    def start_yt_dlp_download_url(self, dialog, ext, is_audio, quality_mod, download_playlist):
-        print("test /////////////////////////////////////////////////")
+    def start_yt_dlp_download_url(self, dialog, ext, is_audio, quality_mod, download_playlist, include_subs=False, include_thumb=False):
         segments = self.spin_seg.get_value_as_int()
         speed_limit = self.app_settings.get("global_speed_limit", "0")
         custom_name = self.yt_entry_name.get_text().strip()
         try:
-            # if "__compiled__" in globals():
-            #     exe_c = [self.browser_context_menu_handler_script_path]
-            # else:
-            #     exe_c = [sys.executable, self.browser_context_menu_handler_script_path]
-
             worker_env = os.environ.copy()
             worker_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
             worker_env["FLAMEGET_WORKER"] = "browser"
@@ -3485,6 +3479,10 @@ class FlameGetManager(Gtk.Application):
                 cmd.append("--playlist")
             if quality_mod:
                 cmd.extend(["--quality", quality_mod])
+            if include_subs:
+                cmd.append("--include_subs")
+            if include_thumb:
+                cmd.append("--include_thumb")
 
             print(cmd)
             subprocess.Popen(cmd, env=worker_env)
@@ -4267,19 +4265,33 @@ class FlameGetManager(Gtk.Application):
                 except FileNotFoundError:
                     pass
 
-    def check_and_install_ffmpeg(self, parent_window, install_dir):
-        if os.path.exists(addOn.FireFiles.ffmpeg_path):
+    def check_and_install_dependencies(self, parent_window):
+        import platform
+        
+        system = platform.system().lower()
+        arch = platform.machine().lower()
+        if arch in ['x86_64', 'amd64']:
+            arch = 'x86_64'
+        elif arch in ['aarch64', 'arm64']:
+            arch = 'aarch64'
+
+        binary_name = "rustypipe-botguard.exe" if system == 'windows' else "rustypipe-botguard"
+        botguard_path = os.path.join(addOn.FireFiles.binaries_path, binary_name)
+
+        need_ffmpeg = not os.path.exists(addOn.FireFiles.ffmpeg_path)
+        need_botguard = not os.path.exists(botguard_path)
+
+        if not need_ffmpeg and not need_botguard:
             return True 
 
         dialog = Gtk.Window(
             transient_for=parent_window,
             modal=True,
-            title="Missing FFmpeg Component !",
+            title="Installing Essential Components",
             resizable=False,
             default_width=400
         )
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
-
         dialog.add_css_class("dialog")
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -4290,7 +4302,7 @@ class FlameGetManager(Gtk.Application):
         dialog.set_child(content_box)
 
         desc_label = Gtk.Label(
-            label="FlameGet needs FFmpeg to merge high-quality video and audio tracks.\nWould you like to download and install it automatically (~30MB)?",
+            label="FlameGet is missing essential components required to download media.\nThey will now be installed automatically.",
             wrap=True,
             xalign=0
         )
@@ -4299,95 +4311,115 @@ class FlameGetManager(Gtk.Application):
         progress_bar = Gtk.ProgressBar()
         progress_bar.set_fraction(0.0)
         progress_bar.set_visible(False)
-        progress_label = Gtk.Label(label="Downloading...")
-        progress_label.set_visible(False)
+        progress_label = Gtk.Label(label="Initializing...")
+        
         content_box.append(progress_bar)
         content_box.append(progress_label)
 
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         button_box.set_halign(Gtk.Align.FILL)
         button_box.set_margin_top(12)
-        button_box.set_hexpand(True)
+        button_box.set_hexpand(False)
         content_box.append(button_box)
 
-        cancel_btn = Gtk.Button(label="Cancel")
-        install_btn = Gtk.Button(label="Download & Install")
-        cancel_btn.set_hexpand(True)
-        install_btn.set_hexpand(True)
-        
-        cancel_btn.add_css_class("btn_cancel")
-        install_btn.add_css_class("green-btn")
-
-        button_box.append(cancel_btn)
-        button_box.append(install_btn)
-
-        def on_install_clicked(btn):
-            progress_bar.set_visible(True)
-            cancel_btn.set_visible(False)
-            install_btn.set_visible(False)
-            progress_label.set_visible(True)
-            threading.Thread(
-                target=self.download_ffmpeg, 
-                args=(dialog, install_dir, progress_bar),
-                daemon=True
-            ).start()
-
-        def on_cancel_clicked(btn):
-            dialog.destroy()
-            self.show_toast_popup(f"{self.tr("FFmpeg is required, Please install it!")}", color="red_toast")
-
-        install_btn.connect("clicked", on_install_clicked)
-        cancel_btn.connect("clicked", on_cancel_clicked)
-
+        threading.Thread(
+            target=self.download_dependencies, 
+            args=(dialog, progress_bar, progress_label, need_ffmpeg, need_botguard, botguard_path, system, arch),
+            daemon=True
+        ).start()
         dialog.present()
 
         if os.name == 'nt':
-            GLib.timeout_add(50, addOn.force_center_dialog, "Missing FFmpeg Component !", self.app_name)
+            GLib.timeout_add(50, addOn.force_center_dialog, "Installing Essential Components", self.app_name)
             
         return False
     
-    def update_ffmpeg_progress(self, progress_bar, fraction):
-        """Safely updates the GTK progress bar from the main thread"""
+    def update_download_progress(self, progress_bar, fraction):
         progress_bar.set_fraction(fraction)
         progress_bar.set_text(f"{int(fraction * 100)}%")
         return False
 
-    def download_ffmpeg(self, dialog, install_dir, progress_bar):
+    def download_dependencies(self, dialog, progress_bar, progress_label, need_ffmpeg, need_botguard, botguard_path, system, arch):
         import urllib.request
         import zipfile
+        import tarfile
+        import stat
         import io
-        
-        url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-        
+        progress_bar.set_visible(True)
         try:
-            req = urllib.request.urlopen(url)
-            
-            total_size = int(req.headers.get('content-length', 0))
-            downloaded = 0
-            chunk_size = 8192
-            
-            zip_buffer = io.BytesIO()
-            
-            while True:
-                chunk = req.read(chunk_size)
-                if not chunk:
-                    break
-                    
-                zip_buffer.write(chunk)
-                downloaded += len(chunk)
+            if need_ffmpeg:
+                GLib.idle_add(progress_label.set_label, "Downloading FFmpeg (~30MB)...")
+                GLib.idle_add(self.update_download_progress, progress_bar, 0.0)
                 
-                if total_size > 0:
-                    fraction = downloaded / total_size
-                    GLib.idle_add(self.update_ffmpeg_progress, progress_bar, fraction)
-            
-            zip_buffer.seek(0)
-            
-            with zipfile.ZipFile(zip_buffer) as z:
-                for file_info in z.infolist():
-                    if file_info.filename.endswith("ffmpeg.exe") or file_info.filename.endswith("ffprobe.exe"):
-                        file_info.filename = os.path.basename(file_info.filename)
-                        z.extract(file_info, addOn.FireFiles.binaries_path)
-            
+                url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+                req = urllib.request.urlopen(url)
+                total_size = int(req.headers.get('content-length', 0))
+                downloaded = 0
+                chunk_size = 8192
+                zip_buffer = io.BytesIO()
+                
+                while True:
+                    chunk = req.read(chunk_size)
+                    if not chunk:
+                        break
+                    zip_buffer.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        fraction = downloaded / total_size
+                        GLib.idle_add(self.update_download_progress, progress_bar, fraction)
+                
+                GLib.idle_add(progress_label.set_label, "Extracting FFmpeg...")
+                zip_buffer.seek(0)
+                with zipfile.ZipFile(zip_buffer) as z:
+                    for file_info in z.infolist():
+                        if file_info.filename.endswith("ffmpeg.exe") or file_info.filename.endswith("ffprobe.exe"):
+                            file_info.filename = os.path.basename(file_info.filename)
+                            z.extract(file_info, addOn.FireFiles.binaries_path)
+
+            if need_botguard:
+                GLib.idle_add(progress_label.set_label, "Downloading Botguard (PO Token plugin)...")
+                GLib.idle_add(self.update_download_progress, progress_bar, 0.0)
+                
+                version = "v0.1.2"
+                if system == 'windows':
+                    archive_name = f"rustypipe-botguard-{version}-{arch}-pc-windows-msvc.zip"
+                else:
+                    archive_name = f"rustypipe-botguard-{version}-{arch}-unknown-linux-gnu.tar.xz"
+                
+                archive_path = os.path.join(os.getcwd(), archive_name)
+                url = f"https://codeberg.org/ThetaDev/rustypipe-botguard/releases/download/{version}/{archive_name}"
+                
+                req = urllib.request.urlopen(url)
+                total_size = int(req.headers.get('content-length', 0))
+                downloaded = 0
+                chunk_size = 8192
+                
+                with open(archive_path, 'wb') as f:
+                    while True:
+                        chunk = req.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            fraction = downloaded / total_size
+                            GLib.idle_add(self.update_download_progress, progress_bar, fraction)
+                
+                GLib.idle_add(progress_label.set_label, "Extracting Botguard...")
+                if archive_name.endswith('.zip'):
+                    with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                        zip_ref.extractall(addOn.FireFiles.binaries_path)
+                elif archive_name.endswith('.tar.xz'):
+                    with tarfile.open(archive_path, 'r:xz') as tar_ref:
+                        tar_ref.extractall(addOn.FireFiles.binaries_path)
+                
+                if os.path.exists(archive_path):
+                    os.remove(archive_path)
+                    
+                if system != 'windows' and os.path.exists(botguard_path):
+                    st = os.stat(botguard_path)
+                    os.chmod(botguard_path, st.st_mode | stat.S_IEXEC)
+
             GLib.idle_add(self.on_download_success, dialog)
             
         except Exception as e:
@@ -4395,12 +4427,12 @@ class FlameGetManager(Gtk.Application):
 
     def on_download_success(self, dialog):
         dialog.destroy()
-        self.show_toast_popup(f"{self.tr("FFmpeg installed successfully!")}")
+        self.show_toast_popup("Essential components installed successfully!")
         return False
 
     def on_download_error(self, dialog, error_msg):
         dialog.destroy()
-        self.show_toast_popup(f"{self.tr("FFmpeg is required, Please install it!")}", color="red_toast")
+        self.show_toast_popup("Failed to install components. Please check your connection.", color="red_toast")
         return False
 
     def start_tray_subprocess(self):

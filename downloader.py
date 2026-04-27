@@ -112,8 +112,20 @@ class TorrentNode(GObject.Object):
             self.parent.recalculate_state()
 
 
+from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider, PoTokenResponse, register_provider
+@register_provider
+class FlameGetTokenProviderPTP(PoTokenProvider):  
+    PROVIDER_NAME = 'flameget-internal'
+
+    def is_available(self):
+        return True
+
+    def _real_request_pot(self, request):
+        token = subprocess.check_output([f'rustypipe-botguard{".exe" if os.name == "nt" else ""}']).decode().strip()
+        return PoTokenResponse(po_token=token)
+
 class DownloadWindow(Gtk.ApplicationWindow):
-    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None):
+    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None):
         super().__init__(application=app_manager)
 
         self.conn = addOn.FireFiles.db.conn
@@ -141,8 +153,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.app_name = "FlameGet Downloader"
 
         self.FileName = FileName
-        if download_playlist:
-            self.FileName = self.FileName.split('.')[0]
+
         self.base, self.original_ext = os.path.splitext(self.FileName)
         self.download_id = id
         self.file_size_bytes = file_size
@@ -155,13 +166,13 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.eta_str = "--:--"
         self.speed_str = "--"
         self.has_inserted = False
-        self.quality_mod = quality_mod
-        
-        if is_audio == True: self.is_audio = is_audio 
-        else: self.is_audio = False
-        if self.quality_mod == None: self.quality_mod = "Best Available"
-        if download_playlist == True: self.download_playlist = download_playlist
-        else: self.download_playlist = False
+        self.quality_mod = quality_mod or "Best Available"
+        self.is_audio = is_audio 
+        self.download_playlist = download_playlist
+        if self.download_playlist: self.FileName = self.FileName.split('.')[0]
+        self.include_thumb = include_thumb
+        self.include_subs = include_subs
+
         # torrent params
         self.is_torrent = self.url.startswith("magnet:?") or self.url.endswith(".torrent")
         self.torrent_indices = torrent_indices
@@ -581,8 +592,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def manage_torrent_metadata(self, action="save"):
         if not self.is_torrent: return
         try:
-            filename = self.FileName.split('.')[0]
-            self.meta_path = os.path.join(self.download_folder, filename + ".meta.json")
+            self.meta_path = os.path.join(self.download_folder, self.FileName + ".meta.json")
             if action == "save":
                 if self.torrent_files_data:
                     data = {
@@ -696,6 +706,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                                 if os.path.exists(save_path_template):
                                     shutil.rmtree(save_path_template, ignore_errors=True)
                     except subprocess.TimeoutExpired:
+                        GLib.idle_add(self.loading_lbl.set_text, "The process timed out while fetching metadata.")
                         print("The process timed out while fetching metadata.")
                     except subprocess.CalledProcessError as e:
                         print(f"Aria2c crashed or returned an error: {e}")
@@ -1069,7 +1080,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         else:
             timestamp = time.time()
             save_name = self.FileName
-            if self.is_torrent or self.download_playlist:
+            if self.download_playlist:
                 save_name = self.FileName.split('.')[0]
             self.create_download(save_name, addOn.parse_size(self.file_size_bytes), timestamp, self.category, self.download_folder, self.url, self.pid, self.file_size_bytes, self.segments_count, self.is_audio, self.quality_mod, self.download_playlist)
 
@@ -1378,8 +1389,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.torrent_files_ui_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
             scrolled.set_child(self.torrent_files_ui_box)
             
-            loading_lbl = Gtk.Label(label=self.tr("Retrieving file list..."))
-            self.torrent_files_ui_box.append(loading_lbl)
+            self.loading_lbl = Gtk.Label(label=self.tr("Retrieving file list..."))
+            self.torrent_files_ui_box.append(self.loading_lbl)
 
             grid.attach(scrolled, 1, row, 1, 1)
             
@@ -2590,6 +2601,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 GLib.idle_add(self.status_label.set_text, self.tr("Converting / Merging..."))
         
         rate_limit_bytes = (self.limit_speed * 1024) if self.limit_speed > 0 else None
+        
         ydl_opts = {
             'outtmpl': outtmpl,
             'paths': paths,
@@ -2597,17 +2609,33 @@ class DownloadWindow(Gtk.ApplicationWindow):
             'progress_hooks': [progress_hook],
             'noplaylist': not self.download_playlist,
             'concurrent_fragment_downloads': self.segments_count,
-            'quiet': True,
-            'no_warnings': True,
             'ratelimit': rate_limit_bytes,
             'cachedir': False,
             'extractor_args': {
-                'youtube': ['player_client=android,web']
+                'youtube': ['player_client=web']
             },
             'http_headers': {
-                'User-Agent': self.user_agent if self.user_agent else 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            }
+                'User-Agent': self.user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+            'postprocessors': [] 
+            
         }
+        if self.include_thumb:
+            ydl_opts['writethumbnail'] = True
+            ydl_opts['postprocessors'].append({
+                'key': 'FFmpegThumbnailsConvertor',
+                'format': 'jpg',
+            })
+
+        if self.include_subs:
+            ydl_opts['writesubtitles'] = True
+            ydl_opts['writeautomaticsub'] = False
+            ydl_opts['subtitleslangs'] = ['en', 'en-US']
+            
+            ydl_opts['postprocessors'].append({
+                'key': 'FFmpegSubtitlesConvertor',
+                'format': 'srt',
+            })
 
         if self.is_audio:
             valid_audio_codecs = {'mp3', 'm4a', 'wav', 'flac', 'opus', 'aac', 'vorbis', 'alac'}
@@ -2623,19 +2651,20 @@ class DownloadWindow(Gtk.ApplicationWindow):
             if abr: fmt = f"bestaudio[abr<={abr}]/bestaudio"
             
             ydl_opts['format'] = fmt
-            ydl_opts['postprocessors'] = [{
+            ydl_opts['postprocessors'].append({
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': audio_codec,
-            }]
+            })
+            
         else:
             requires_reencoding = target_ext in ['mov', 'avi', 'flv']
             if requires_reencoding:
                 ydl_opts['merge_output_format'] = 'mkv'
 
-                ydl_opts['postprocessors'] = [{
+                ydl_opts['postprocessors'].append({
                     'key': 'FFmpegVideoConvertor', 
                     'preferedformat': target_ext
-                }]
+                })
 
                 ydl_opts['postprocessor_args'] = {
                     'FFmpegVideoConvertor': ['-c:v', 'libx264', '-c:a', 'aac']
@@ -2652,10 +2681,10 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
                 ydl_opts['format'] = fmt
                 
-                ydl_opts['postprocessors'] = [{
+                ydl_opts['postprocessors'].append({
                     'key': 'FFmpegVideoConvertor', 
                     'preferedformat': target_ext
-                }]
+                })
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -3469,6 +3498,8 @@ class DownloaderAppManager(Gtk.Application):
         parser.add_argument("--in_minimize_mode", action="store_true", default=False, help="start app in minimize mod")
         parser.add_argument("--audio", action="store_true", default=False, help="Download as audio")
         parser.add_argument("--playlist", action="store_true", default=False, help="Download entire playlist")
+        parser.add_argument("--include_subs", action="store_true", default=False, help="Download subtitles")
+        parser.add_argument("--include_thumb", action="store_true", default=False, help="Download video thumbnail")
         parser.add_argument("--is_yt_dlp", action="store_true", default=False, help="Is it a video?")
         parser.add_argument("--quality", type=str, default="Best Available", help="Quality modifier")
         parser.add_argument("--speed-limit", type=safe_float, default=0.0, help="Speed limit in kB/s")    
@@ -3503,6 +3534,8 @@ class DownloaderAppManager(Gtk.Application):
             is_audio=args.audio, 
             quality_mod=args.quality, 
             download_playlist=args.playlist,
+            include_subs=args.include_subs,
+            include_thumb=args.include_thumb,
             is_yt_dlp=args.is_yt_dlp,
             speed_limit=args.speed_limit, 
             torrent_indices=args.torrent_indices, 

@@ -48,15 +48,14 @@ class _FileManager():
         self.downloader_script_path = os.path.join(self.install_dir, f"downloader{ext}")
         self.browser_context_menu_handler_script_path = os.path.join(self.install_dir, f"browser_context_menu_handler{ext}")
         self.server_script_path = os.path.join(self.install_dir, f"server{ext}")
-        
+        self.binaries_path = os.path.join(self.install_dir, "binaries")
         if self.is_compiled:
-            self.tray_script_path = os.path.join(self.install_dir, "binaries",  "tray.exe" if os.name =="nt" else "tray.bin")
+            self.tray_script_path = os.path.join(self.binaries_path,  "tray.exe" if os.name =="nt" else "tray.bin")
         else:
             self.tray_script_path = os.path.join(self.install_dir, "tray.py")
 
-        self.aria2c_path = "aria2c" if os.name != "nt" else os.path.join(self.install_dir, "binaries", "aria2c.exe")
+        self.aria2c_path = "aria2c" if os.name != "nt" else os.path.join(self.binaries_path, "aria2c.exe")
             
-        self.binaries_path = os.path.join(self.install_dir, "binaries")
         self.icons_dir = os.path.join(self.install_dir, "icons")
         self.ffmpeg_path = os.path.join(self.binaries_path, "ffmpeg.exe") if os.name == "nt" else shutil.which("ffmpeg")
         display = Gdk.Display.get_default()

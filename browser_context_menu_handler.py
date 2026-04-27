@@ -33,7 +33,7 @@ def tr(text):
     return text
 
 class VideoAnalyzer(Gtk.Application):
-    def __init__(self, filename, directory, url, ext=".mp4", audio=False, quality="Best Available", playlist=False):
+    def __init__(self, filename, directory, url, ext=".mp4", audio=False, quality="Best Available", playlist=False, include_subs=False, include_thumb=False):
         super().__init__(application_id="io.github.C_Yassin.FlameGet.Downloader", flags=Gio.ApplicationFlags.NON_UNIQUE)
         self.filename = filename
         self.file_size_bytes = 0
@@ -42,9 +42,11 @@ class VideoAnalyzer(Gtk.Application):
         self.ext = ext if ext else ".mp4"
         self.info_dict = None
         self.formats = []
-        self.is_audio = audio if audio else False
-        self.quality = quality if quality else "Best Available"
-        self.is_playlist = playlist if playlist else False
+        self.is_audio = audio
+        self.quality = quality
+        self.is_playlist = playlist
+        self.include_subs = include_subs
+        self.include_thumb = include_thumb
 
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(application=self)
@@ -124,11 +126,13 @@ class VideoAnalyzer(Gtk.Application):
         if is_audio_mode:
             ydl_opts['format'] = "bestaudio/best"
         else:
-            if quality_mod == "Best Available":
+            safe_quality = quality_mod or "Best Available"
+
+            if safe_quality == "Best Available":
                 ydl_opts['format'] = "bestvideo+bestaudio/best"
             else:
                 resolution_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480}
-                target_height = resolution_map.get(quality_mod, quality_mod)
+                target_height = resolution_map.get(safe_quality, 1080)
                 ydl_opts['format'] = f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]"
 
         try:
@@ -316,7 +320,7 @@ class VideoAnalyzer(Gtk.Application):
             self.dd_fmt.set_selected(0)
 
 
-        # --- Row 8: Playlist Checkbox ---
+        # --- Row 8:Checkboxes ---
         def on_toggle(btn):
             if btn: self.is_playlist = btn.get_active()
 
@@ -330,13 +334,41 @@ class VideoAnalyzer(Gtk.Application):
         check = is_youtube and ("&list=" in self.url)
         self.chk_playlist.set_sensitive(check)
         self.chk_playlist.set_active(self.is_playlist if not check else check)
-        self.chk_playlist.connect("toggled", on_toggle) 
-        grid.attach(self.chk_playlist, 1, row, 1, 1) 
+        self.chk_playlist.connect("toggled", on_toggle)
+        grid.attach(self.chk_playlist, 1, row, 1, 1)
         row += 1
+
+        def on_thumbs_toggle(btn):
+            if btn: self.include_subs = btn.get_active()
+
+        chk_t_label = Gtk.Label(label=tr("Embed Thumbnail:"), xalign=0)
+        grid.attach(chk_t_label, 0, row, 1, 1)
         
+        self.chk_include_thumb = Gtk.CheckButton(label=tr("Download Video Thumbnail"))
+        self.chk_include_thumb.set_hexpand(True)
+        self.chk_include_thumb.set_halign(Gtk.Align.START)
+        self.chk_include_thumb.set_active(self.include_thumb)
+        self.chk_include_thumb.connect("toggled", on_thumbs_toggle) 
+        grid.attach(self.chk_include_thumb, 1, row, 1, 1)
+        row += 1
+
+        def on_subs_toggle(btn):
+            if btn: self.include_subs = btn.get_active()
+
+        chk_s_label = Gtk.Label(label=tr("Embed Subtitles:"), xalign=0)
+        grid.attach(chk_s_label, 0, row, 1, 1)
+        
+        self.chk_include_subs = Gtk.CheckButton(label=tr("Download subtitles"))
+        self.chk_include_subs.set_hexpand(True)
+        self.chk_include_subs.set_halign(Gtk.Align.START)
+        self.chk_include_subs.set_active(self.include_subs)
+        self.chk_include_subs.connect("toggled", on_subs_toggle) 
+        grid.attach(self.chk_include_subs, 1, row, 1, 1)
+        row += 1
+
         # --- Buttons ---
         btn_box = Gtk.Box(spacing=10)
-        btn_box.set_margin_top(15) 
+        btn_box.set_margin_top(15)
         
         btn_cancel = Gtk.Button(label=tr("Cancel"))
         btn_cancel.set_hexpand(True)
@@ -417,6 +449,15 @@ class VideoAnalyzer(Gtk.Application):
         if self.is_playlist:
             cmd.append("--playlist")
 
+        print("self.include_subs", self.include_subs)
+        print("self.include_thumb", self.include_thumb)
+
+        if self.include_subs:
+            cmd.append("--include_subs")
+        
+        if self.include_thumb:
+            cmd.append("--include_thumb")
+
         cmd.append("--is_yt_dlp")
 
         print("Launching:", " ".join(cmd))
@@ -436,7 +477,8 @@ def main():
     parser.add_argument("--audio", action="store_true", help="Download as audio")
     parser.add_argument("--quality", type=str, help="Quality modifier (e.g. 1080p, High)")
     parser.add_argument("--playlist", action="store_true", help="Download entire playlist")
-
+    parser.add_argument("--include_subs", action="store_true", default=False, help="Download subtitles")
+    parser.add_argument("--include_thumb", action="store_true", default=False, help="Download video thumbnail")
     args, _ = parser.parse_known_args()
     if not args.filename or args.filename.strip() == "":
         filename = "video_download"
@@ -481,11 +523,17 @@ def main():
         if args.playlist:
             cmd.append("--playlist")
 
+        if args.include_subs:
+            cmd.append("--include_subs")
+        
+        if args.include_thumb:
+            cmd.append("--include_thumb")
+
         print("Launching:", " ".join(cmd))
         subprocess.Popen(cmd, env=worker_env)
         sys.exit(0)
 
-    app = VideoAnalyzer(filename, directory, args.url, args.ext, args.audio, args.quality, args.playlist)
+    app = VideoAnalyzer(filename, directory, args.url, args.ext, args.audio, args.quality, args.playlist, args.include_subs, args.include_thumb)
     app.run(None)
 
 if __name__ == "__main__":
