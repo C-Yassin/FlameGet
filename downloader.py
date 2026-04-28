@@ -121,7 +121,7 @@ class FlameGetTokenProviderPTP(PoTokenProvider):
         return True
 
     def _real_request_pot(self, request):
-        token = subprocess.check_output([os.path.join(addOn.Firefiles.binaries_path, f'rustypipe-botguard{".exe" if os.name == "nt" else ""}')]).decode().strip()
+        token = subprocess.check_output([addOn.FireFiles.rustypipe_botguard_path]).decode().strip()
         return PoTokenResponse(po_token=token)
 
 class DownloadWindow(Gtk.ApplicationWindow):
@@ -2601,6 +2601,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 GLib.idle_add(self.status_label.set_text, self.tr("Converting / Merging..."))
         
         rate_limit_bytes = (self.limit_speed * 1024) if self.limit_speed > 0 else None
+        os.environ["PATH"] += os.pathsep + addOn.FireFiles.rustypipe_botguard_path
         
         ydl_opts = {
             'outtmpl': outtmpl,
@@ -2612,7 +2613,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             'ratelimit': rate_limit_bytes,
             'cachedir': False,
             'extractor_args': {
-                'youtube': ['player_client=web']
+                'youtube': ['player_client=web'],
             },
             'http_headers': {
                 'User-Agent': self.user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -2629,7 +2630,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         if self.include_subs:
             ydl_opts['writesubtitles'] = True
-            ydl_opts['writeautomaticsub'] = False
+            ydl_opts['writeautomaticsub'] = True
             ydl_opts['subtitleslangs'] = ['en', 'en-US']
             
             ydl_opts['postprocessors'].append({

@@ -55,7 +55,9 @@ class _FileManager():
             self.tray_script_path = os.path.join(self.install_dir, "tray.py")
 
         self.aria2c_path = "aria2c" if os.name != "nt" else os.path.join(self.binaries_path, "aria2c.exe")
-            
+        
+        self.rustypipe_botguard_path = os.path.join(self.binaries_path, f'rustypipe-botguard{".exe" if os.name == "nt" else ""}')
+        os.environ["PATH"] = os.path.abspath(self.binaries_path) + os.pathsep + os.environ.get("PATH", "")
         self.icons_dir = os.path.join(self.install_dir, "icons")
         self.ffmpeg_path = os.path.join(self.binaries_path, "ffmpeg.exe") if os.name == "nt" else shutil.which("ffmpeg")
         display = Gdk.Display.get_default()

@@ -333,7 +333,7 @@ class VideoAnalyzer(Gtk.Application):
         is_youtube = self.is_yt_dlp(self.url)
         check = is_youtube and ("&list=" in self.url)
         self.chk_playlist.set_sensitive(check)
-        self.chk_playlist.set_active(self.is_playlist if not check else check)
+        self.chk_playlist.set_active(self.is_playlist)
         self.chk_playlist.connect("toggled", on_toggle)
         grid.attach(self.chk_playlist, 1, row, 1, 1)
         row += 1
