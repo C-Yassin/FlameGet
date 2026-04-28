@@ -38,9 +38,10 @@
     </screenshots>
 
     <releases>
-        <release version="1.0.0" date="2026-04-11">
+        <release version="1.1" date="2026-04-29">
             <description>
-                <p>Initial release of FlameGet on Flathub.</p>
+                <p>Updated to v1.1.</p>
+                <p>Fixed major bugs.</p>
             </description>
         </release>
     </releases>
