@@ -121,7 +121,7 @@ class FlameGetTokenProviderPTP(PoTokenProvider):
         return True
 
     def _real_request_pot(self, request):
-        token = subprocess.check_output([f'rustypipe-botguard{".exe" if os.name == "nt" else ""}']).decode().strip()
+        token = subprocess.check_output([os.path.join(addOn.Firefiles.binaries_path, f'rustypipe-botguard{".exe" if os.name == "nt" else ""}')]).decode().strip()
         return PoTokenResponse(po_token=token)
 
 class DownloadWindow(Gtk.ApplicationWindow):
