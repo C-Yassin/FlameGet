@@ -8,6 +8,23 @@
     
     <description>
         <p>Accelerate your downloads, grab videos from your favorite sites, and manage everything from a beautiful, modern interface.</p>
+        <description>
+
+        <p>Accelerate your downloads, grab videos from your favorite sites, and manage everything from a beautiful, modern interface.</p>
+        <ul>
+            <li>Clean, simple, and easy-to-use interface</li>
+            <li>Support for BitTorrent and Magnet links</li>
+            <li>Support for video links</li>
+            <li>Selective file downloading for torrents</li>
+            <li>Automatic daily tracker list updates</li>
+            <li>Customizable User-Agent</li>
+            <li>Customizable post-downlad commands</li>
+            <li>System notifications upon download completion</li>
+            <li>System tray integration for quick access</li>
+            <li>Native CSS customization mode support</li>
+            <li>Optionally delete downloaded files when removing tasks</li>
+            <li>Available in multiple languages</li>
+        </ul>
     </description>
     
     <launchable type="desktop-id">io.github.C_Yassin.FlameGet.desktop</launchable>
@@ -41,7 +58,7 @@
         <release version="1.1" date="2026-04-29">
             <description>
                 <p>Updated to v1.1.</p>
-                <p>Fixed major bugs.</p>
+                <p>Fixed embedding thumbnails & captions.</p>
             </description>
         </release>
     </releases>
