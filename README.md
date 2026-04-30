@@ -53,7 +53,6 @@ cd flameget
 ````
 ```bash
 makepkg -si 
-# Or for an easier build, use: ./build.sh
 ```
 ### Manual Installation
 
