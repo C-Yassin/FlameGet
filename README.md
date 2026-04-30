@@ -40,7 +40,7 @@ Please visit the [Project Website](https://c-yassin.github.io/Fireweb/) for more
 
 ### FlatHub
 ```bash
-Soon...
+flatpak install flathub io.github.C_Yassin.FlameGet
 ````
 
 ### Arch Linux (AUR)
