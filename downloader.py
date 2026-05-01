@@ -15,7 +15,12 @@ import FireAddOns as addOn
 yt_dlp = addOn.lazy_import("yt_dlp")
 pycurl = addOn.lazy_import("pycurl")
 requests = addOn.lazy_import("requests")
-TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
+is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
+if os.name != 'nt':
+    TRAY_SOCKET_PATH = f"{"\0" if is_flatpak_env else ""}flameget_tray_listener{"" if is_flatpak_env else ".sock"}"
+else:
+    TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
+
 WINDOWS_TRAY_PORT = 18598
 HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
 #for the stupid range detection     
@@ -135,11 +140,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
         # Use port in socket name to prevent collision if multiple windows open in the same process
         self.port = random.randint(50000, 60000)
         self.pid = os.getpid()
-        self.DOWNLOADER_SOCKET = os.path.join(self.runtime_dir, f"flameget_dl_{self.pid}_{self.port}.sock")
+        if os.name != 'nt':
+            self.DOWNLOADER_SOCKET = f"{"\0" if is_flatpak_env else ""}flameget_dl_{self.pid}_{self.port}{"" if is_flatpak_env else ".sock"}"
+        else:
+            self.DOWNLOADER_SOCKET = os.path.join(self.runtime_dir, f"flameget_dl_{self.pid}_{self.port}.sock")
+
         self.has_updated_pid = False
         self.can_change_segment_count = True
         self.is_completed = False
-        self.is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
         
         # for aria2
         self.update_once = False
@@ -271,7 +279,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.set_resizable(False)
         GLib.idle_add(addOn.set_titlebar_theme, self.get_title(), self.app_settings.get("theme_mode"))
         self.connect("close-request", self.on_close_request)
-        self.set_icon_name("io.github.C_Yassin.FlameGet" if self.is_flatpak_env else "flameget")
+        self.set_icon_name("io.github.C_Yassin.FlameGet" if is_flatpak_env else "flameget")
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
         self.stack = Gtk.Stack()
@@ -3344,7 +3352,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             message = f"pid:{self.FileName}:{msg_progress}:{self.pid}:{self.port}:{can_delete}"
 
             if os.name != 'nt':
-                if os.path.exists(TRAY_SOCKET_PATH):
+                if TRAY_SOCKET_PATH.startswith('\0') or os.path.exists(TRAY_SOCKET_PATH):
                     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                         client.connect(TRAY_SOCKET_PATH)
                         client.sendall(message.encode())
