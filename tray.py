@@ -6,21 +6,17 @@ import json
 import threading
 
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
-
+# fuck the tray system in linux
 if os.name == 'nt':
     import pystray
     from PIL import Image
 else:
-    if is_flatpak_env:
-        # soon...
-        pass
-    else:
-        import gi
-        gi.require_version('Gtk', '3.0')
-        gi.require_version('GdkPixbuf', '2.0')
-        from gi.repository import Gtk, GdkPixbuf, GLib
-        gi.require_version('AppIndicator3', '0.1')
-        from gi.repository import AppIndicator3
+    import gi
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('GdkPixbuf', '2.0')
+    from gi.repository import Gtk, GdkPixbuf, GLib
+    gi.require_version('AppIndicator3', '0.1')
+    from gi.repository import AppIndicator3
 
 WINDOWS_TRAY_PORT = 18598
 WINDOWS_MAIN_PORT = 18597
@@ -36,13 +32,17 @@ def get_temp_dir():
         return os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 
 runtime_dir = get_temp_dir()
-MAIN_APP_SOCKET = os.path.join(runtime_dir, "flameget_dm_tray.sock")
-TRAY_SOCKET_PATH = os.path.join(runtime_dir, "flameget_tray_listener.sock")
+
+if is_flatpak_env:
+    MAIN_APP_SOCKET = "\0flameget_dm_tray"
+    TRAY_SOCKET_PATH = "\0flameget_tray_listener"
+else:
+    MAIN_APP_SOCKET = os.path.join(runtime_dir, "flameget_dm_tray.sock")
+    TRAY_SOCKET_PATH = os.path.join(runtime_dir, "flameget_tray_listener.sock")
 
 class TrayApp:
     def __init__(self):
         self.pid_menu_items = {}
-        self.is_flatpak = is_flatpak_env
 
         if os.name == 'nt':
             base_config = os.getenv('APPDATA', os.path.expanduser('~'))
@@ -50,7 +50,7 @@ class TrayApp:
             self.config_dir = os.path.join(base_data, "flameget")
             self.data_dir = os.path.join(base_data, "flameget")
         else:
-            if not self.is_flatpak:
+            if not is_flatpak:
                 self.config_dir = os.path.join(GLib.get_user_config_dir(), "flameget")
                 self.data_dir = os.path.join(GLib.get_user_data_dir(), "flameget")
             else:
@@ -77,10 +77,6 @@ class TrayApp:
             self.parent_pid = os.getppid()
             threading.Thread(target=self._monitor_parent, daemon=True).start()
             self.setup_windows_tray()
-            
-        elif self.is_flatpak:
-            # soon...
-            pass
             
         else:
             if self.app_settings.get("language") == "ar":
@@ -133,8 +129,6 @@ class TrayApp:
 
         try:
             safe_data = dict(self.windows_pid_data)
-            
-            # FIXED: Correctly unpack the tuple key!
             for (pid, port), label in safe_data.items():
                 submenu = pystray.Menu(
                     pystray.MenuItem(self.tr("Show/Hide Window"), make_toggle_cb(pid, port)),
@@ -245,7 +239,7 @@ class TrayApp:
 
     def _server_loop(self):
         if os.name != 'nt':
-            if os.path.exists(TRAY_SOCKET_PATH):
+            if not is_flatpak and os.path.exists(TRAY_SOCKET_PATH):
                 try:
                     os.unlink(TRAY_SOCKET_PATH)
                 except OSError:
@@ -276,16 +270,12 @@ class TrayApp:
                             try:
                                 parts = cmd.split(":", 5) 
 
-                                if len(parts) >= 6: # FIXED: 6 parts now (pid, name, prog, id, port, status)
+                                if len(parts) >= 6:
                                     _, file_name, progress, proc_id, proc_port, status = parts
                                     
                                     if os.name == 'nt':
                                         self.handle_pid_update(proc_id, proc_port, file_name, progress, status)
-                                    elif self.is_flatpak:
-                                        # soon...
-                                        pass
                                     else:
-                                        # FIXED: Pass proc_port to GTK idle_add
                                         GLib.idle_add(
                                             self.handle_pid_update, 
                                             proc_id, proc_port, file_name, progress, status
@@ -328,10 +318,6 @@ class TrayApp:
                     self.icon.update_menu()
                 except Exception:
                     pass
-                    
-        elif getattr(self, 'is_flatpak', False):
-            # soon...
-            pass
         else:
             if status == "delete":
                 if proc_id in self.pid_menu_items:
@@ -423,13 +409,12 @@ class TrayApp:
             print(f"Socket error while sending command: {e}")
 
     def toggle(self, widget, pid, port):
-        print(f"Toggling PID: {pid}")
         if os.name == 'nt':
             downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
             self.send_windows_command("toggle_pid", target_socket=downloader_sock)
-            return
-        downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
-        self.send_command("toggle_pid", target_socket=downloader_sock)
+        else:
+            downloader_sock = f"{"\0" if is_flatpak_env else ""}flameget_dl_{pid}_{port}{"" if is_flatpak_env else ".sock"}"
+            self.send_command("toggle_pid", target_socket=downloader_sock)
 
     def send_windows_command(self, cmd, target_socket=None):
         try:
@@ -459,13 +444,10 @@ class TrayApp:
         self.send_command("quit")
         if os.name == 'nt':
             self.icon.stop()
-        elif getattr(self, 'is_flatpak', False):
-            # soon...
-            pass
         else:
             if os.path.exists(TRAY_SOCKET_PATH):
                 try: os.unlink(TRAY_SOCKET_PATH)
-                except: pass
+                except (OSError, ValueError): pass
             Gtk.main_quit()
 
     def load_settings(self):
