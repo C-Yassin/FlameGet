@@ -50,7 +50,7 @@ class TrayApp:
             self.config_dir = os.path.join(base_data, "flameget")
             self.data_dir = os.path.join(base_data, "flameget")
         else:
-            if not is_flatpak:
+            if not is_flatpak_env:
                 self.config_dir = os.path.join(GLib.get_user_config_dir(), "flameget")
                 self.data_dir = os.path.join(GLib.get_user_data_dir(), "flameget")
             else:
@@ -239,7 +239,7 @@ class TrayApp:
 
     def _server_loop(self):
         if os.name != 'nt':
-            if not is_flatpak and os.path.exists(TRAY_SOCKET_PATH):
+            if not is_flatpak_env and os.path.exists(TRAY_SOCKET_PATH):
                 try:
                     os.unlink(TRAY_SOCKET_PATH)
                 except OSError:
