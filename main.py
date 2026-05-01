@@ -22,10 +22,14 @@ import FireAddOns as addOn
 import SaveManager
 yt_dlp = addOn.lazy_import("yt_dlp")
 requests = addOn.lazy_import("requests")
+is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 
 WINDOWS_PORT = 18597
 WINDOWS_TRAY_PORT = 18598
-SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_dm_tray.sock")
+if os.name != 'nt':
+    SOCKET_PATH = f"{"\0" if is_flatpak_env else ""}flameget_dm_tray{"" if is_flatpak_env else ".sock"}"
+else:
+    SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_dm_tray.sock")
 HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
 
 os.environ['GTK_CSD'] = '0'
@@ -649,11 +653,6 @@ class FlameGetManager(Gtk.Application):
                     except: pass
 
         self.db.conn.commit() 
-        # if "__compiled__" in globals():
-        #     exe_c = [self.downloader_script_path]
-        # else:
-        #     exe_c = [sys.executable, self.downloader_script_path]
-        
         worker_env = os.environ.copy()
         worker_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
         worker_env["FLAMEGET_WORKER"] = "downloader"
@@ -838,7 +837,6 @@ class FlameGetManager(Gtk.Application):
         sep.set_margin_top(4); sep.set_margin_bottom(4)
         help_box.append(sep)
         
-        # change later
         add_help_item("Report a Bug", "xsi-github-symbolic", lambda: self.open_url("https://github.com/C-Yassin/flameget/issues"))
         add_help_item("Donate", "xsi-emblem-favorite-symbolic", lambda: self.open_url("https://github.com/C-Yassin/flameget"))
 
@@ -3042,10 +3040,6 @@ class FlameGetManager(Gtk.Application):
                 self.db.conn.commit()
 
                 speed_limit = self.app_settings.get("global_speed_limit", "0")
-                # if "__compiled__" in globals():
-                #     exe_c = [self.downloader_script_path]
-                # else:
-                #     exe_c = [sys.executable, self.downloader_script_path]
                 worker_env = os.environ.copy()
                 worker_env["FLAMEGET_WORKER"] = "downloader"
                 worker_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
@@ -3406,10 +3400,6 @@ class FlameGetManager(Gtk.Application):
             trackers_arg = ",".join(tracker_list)
         try:
             print(self.download_folder)
-            # if "__compiled__" in globals():
-            #     exe_c = [self.downloader_script_path]
-            # else:
-            #     exe_c = [sys.executable, self.downloader_script_path]
             worker_env = os.environ.copy()
             worker_env["FLAMEGET_WORKER"] = "downloader"
             worker_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
@@ -3749,7 +3739,11 @@ class FlameGetManager(Gtk.Application):
                 continue
 
             try:
-                downloader_sock = os.path.join(addOn.UNITS.RUNTIME_DIR, f"flameget_dl_{pid}.sock")
+                if os.name != 'nt':
+                    downloader_sock = f"{"\0" if is_flatpak_env else ""}flameget_dl_{pid}{"" if is_flatpak_env else ".sock"}"
+                else:
+                    downloader_sock = os.path.join(addOn.UNITS.RUNTIME_DIR, f"flameget_dl_{pid}.sock")
+
                 if kill:
                     print(f"Stopping PID {pid} for {item.filename}")
                     if os.name == 'nt':
@@ -4218,10 +4212,20 @@ class FlameGetManager(Gtk.Application):
     def _server_loop(self):
         try:
             if os.name != 'nt':
-                if os.path.exists(SOCKET_PATH):
-                    os.unlink(SOCKET_PATH)
                 self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                self.server_socket.bind(SOCKET_PATH)
+                try:
+                    if os.path.exists(SOCKET_PATH):
+                        os.unlink(SOCKET_PATH)
+                except (OSError, ValueError):
+                    pass
+                
+                try:
+                    print(SOCKET_PATH)
+                    self.server_socket.bind(SOCKET_PATH)
+                except OSError as e:
+                    print(f"Failed to bind socket (Manager already running?): {e}")
+                    self.server_running = False
+                    return
             else:
                 self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.server_socket.bind(('127.0.0.1', WINDOWS_PORT))
@@ -4262,7 +4266,7 @@ class FlameGetManager(Gtk.Application):
             if os.name != 'nt':
                 try:
                     os.unlink(SOCKET_PATH)
-                except FileNotFoundError:
+                except (OSError, ValueError):
                     pass
 
     def check_and_install_dependencies(self, parent_window):
@@ -4436,10 +4440,6 @@ class FlameGetManager(Gtk.Application):
         return False
 
     def start_tray_subprocess(self):
-        if self.is_flatpak_env:
-            # soon....
-            return
-
         if getattr(sys, 'frozen', False):
             self.tray_process = subprocess.Popen([self.tray_script_path], **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
         else:
@@ -4607,7 +4607,10 @@ class FlameGetManager(Gtk.Application):
         sys.exit(0)
 
     def stop_tray_subprocess(self):
-        TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
+        if os.name != "nt":
+            TRAY_SOCKET_PATH = f"{"\0" if is_flatpak_env else ""}flameget_tray_listener{"" if is_flatpak_env else ".sock"}"
+        else:
+            TRAY_SOCKET_PATH = os.path.join(runtime_dir, "flameget_tray_listener.sock")
         try:
             if os.name == 'nt':
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
@@ -4675,8 +4678,9 @@ class FlameGetManager(Gtk.Application):
         about.present()
     
 def check_if_running():
-    if os.name != 'nt' and not os.path.exists(SOCKET_PATH):
-        return False
+    if os.name != 'nt':
+        if not SOCKET_PATH.startswith('\0') and not os.path.exists(SOCKET_PATH):
+            return False
 
     try:
         if os.name != 'nt':
