@@ -222,7 +222,6 @@ class FlameGetManager(Gtk.Application):
 
         self.add_url_dialog = None
         self.can_delete_dialog = None
-        self.is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 
         fire_files = addOn.FireFiles
         self.db = fire_files.db
@@ -266,7 +265,7 @@ class FlameGetManager(Gtk.Application):
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(application=self, title=self.app_name)
         self.window.set_default_size(1200, 700)
-        self.window.set_icon_name("io.github.C_Yassin.FlameGet" if self.is_flatpak_env else "flameget")
+        self.window.set_icon_name("io.github.C_Yassin.FlameGet" if is_flatpak_env else "flameget")
 
         drop_target = Gtk.DropTarget.new(Gio.File, Gdk.DragAction.COPY)
         drop_target.connect("enter", self.on_drag_enter)
@@ -1066,7 +1065,6 @@ class FlameGetManager(Gtk.Application):
         gen_box.append(auto_start)
 
         start_minimized = Gtk.CheckButton(label=self.tr("Start in Minimized Mode"))
-        start_minimized.set_sensitive(not self.is_flatpak_env)
         start_minimized.set_tooltip_text(self.tr("If checked, The downloads will begin in the background."))
         start_minimized.set_active(self.app_settings.get("start_in_minimize_mode", False))
         start_minimized.connect("toggled", lambda b: self.app_settings.update({"start_in_minimize_mode": b.get_active()}) or SaveManager.save_settings(self.app_settings))
@@ -4087,7 +4085,7 @@ class FlameGetManager(Gtk.Application):
         autostart_dir = os.path.join(GLib.get_user_config_dir(), "autostart")
         desktop_file = os.path.join(autostart_dir, "flameget.desktop")
 
-        if self.is_flatpak_env:
+        if is_flatpak_env:
             try:
                 action_word = "enable" if enable else "disable"
                 
