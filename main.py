@@ -26,8 +26,8 @@ is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 
 WINDOWS_PORT = 18597
 WINDOWS_TRAY_PORT = 18598
-if os.name != 'nt':
-    SOCKET_PATH = f"{"\0" if is_flatpak_env else ""}flameget_dm_tray{"" if is_flatpak_env else ".sock"}"
+if is_flatpak_env:
+    SOCKET_PATH = "\0flameget_dm_tray"
 else:
     SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_dm_tray.sock")
 HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
