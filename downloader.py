@@ -2558,55 +2558,73 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 raise yt_dlp.utils.DownloadError("Cancelled by user")
 
             if d['status'] == 'downloading':
-                GLib.idle_add(self.progress_bars[0].remove_css_class, "dashed-bar")
+                frag_index = d.get('fragment_index')
+                frag_count = d.get('fragment_count', '?')
                 
-                if self.download_playlist:
-                    GLib.idle_add(self.status_label.set_text, self.tr("Downloading Playlist..."))
+                if frag_index is not None:
+                    
+                    try:
+                        percent = float(frag_index) / float(frag_count)
+                        GLib.idle_add(self.progress_bars[0].set_fraction, percent)
+                        percent_str = f"({percent*100:.1f}%)"
+                    except (ValueError, TypeError, ZeroDivisionError):
+                        GLib.idle_add(self.progress_bars[0].pulse)
+                        percent_str = ""
+                    
+                    text = f"Downloading Fragments... <b>{frag_index} / {frag_count}</b> {percent_str}"
+                    GLib.idle_add(self.est_time_label.set_markup, text)
+                    GLib.idle_add(self.status_label.set_text, "")
+
                 else:
-                    GLib.idle_add(self.status_label.set_text, self.tr("Downloading Video..."))
-
-                total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
-                downloaded = d.get('downloaded_bytes', 0)
+                    GLib.idle_add(self.progress_bars[0].remove_css_class, "dashed-bar")
                 
-                if total > 0:
-                    new_target = downloaded / total
-                    percent = new_target * 100
-                    self.progress = float(percent)
-                    if new_target != self.target_fraction:
-                        self.target_fraction = new_target
-                        
-                        if self.animation_source_id is None:
-                            self.animation_source_id = GLib.timeout_add(16, self._animate_progress)
-                else:
-                    percent = 0
-                    self.progress = 0.0
+                    if self.download_playlist:
+                        GLib.idle_add(self.status_label.set_text, self.tr("Downloading Playlist..."))
+                    else:
+                        GLib.idle_add(self.status_label.set_text, self.tr("Downloading Video..."))
 
-                def strip_ansi(text):
-                    return re.sub(r'\x1b\[[0-9;]*m', '', str(text)).strip()
+                    total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+                    downloaded = d.get('downloaded_bytes', 0)
+                    
+                    if total > 0:
+                        new_target = downloaded / total
+                        percent = new_target * 100
+                        self.progress = float(percent)
+                        if new_target != self.target_fraction:
+                            self.target_fraction = new_target
+                            
+                            if self.animation_source_id is None:
+                                self.animation_source_id = GLib.timeout_add(16, self._animate_progress)
+                    else:
+                        percent = 0
+                        self.progress = 0.0
 
-                self.speed_str = strip_ansi(d.get('_speed_str', '--'))
-                self.eta_str = strip_ansi(d.get('_eta_str', '--'))
-                
-                playlist_info = ""
-                if self.download_playlist and 'info_dict' in d:
-                    idx = d.get('info_dict', {}).get('playlist_index', '?')
-                    count = d.get('info_dict', {}).get('n_entries', '?')
-                    playlist_info = f"<b>{self.tr('Item')} {idx}/{count}</b> | "
+                    def strip_ansi(text):
+                        return re.sub(r'\x1b\[[0-9;]*m', '', str(text)).strip()
 
-                total_str = addOn.parse_size(total)
-                down_str = addOn.parse_size(downloaded)
+                    self.speed_str = strip_ansi(d.get('_speed_str', '--'))
+                    self.eta_str = strip_ansi(d.get('_eta_str', '--'))
+                    
+                    playlist_info = ""
+                    if self.download_playlist and 'info_dict' in d:
+                        idx = d.get('info_dict', {}).get('playlist_index', '?')
+                        count = d.get('info_dict', {}).get('n_entries', '?')
+                        playlist_info = f"<b>{self.tr('Item')} {idx}/{count}</b> | "
 
-                GLib.idle_add(
-                    self.est_time_label.set_markup,
-                    f"{playlist_info}{self.tr('Downloaded')}: <span font_features='tnum=1'><b>{down_str}/{total_str}</b> ({percent:.1f}%)</span> | "
-                    f"{self.tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
-                    f"ETA: <span font_features='tnum=1'><b>{self.eta_str}</b></span>"
-                )
+                    total_str = addOn.parse_size(total)
+                    down_str = addOn.parse_size(downloaded)
+
+                    GLib.idle_add(
+                        self.est_time_label.set_markup,
+                        f"{playlist_info}{self.tr('Downloaded')}: <span font_features='tnum=1'><b>{down_str}/{total_str}</b> ({percent:.1f}%)</span> | "
+                        f"{self.tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
+                        f"ETA: <span font_features='tnum=1'><b>{self.eta_str}</b></span>"
+                    )
 
             elif d['status'] == 'finished':
-                GLib.idle_add(self.progress_bars[0].add_css_class, "dashed-bar")
                 GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
                 GLib.idle_add(self.status_label.set_text, self.tr("Converting / Merging..."))
+                GLib.idle_add(self.est_time_label.set_text, "")
         
         rate_limit_bytes = (self.limit_speed * 1024) if self.limit_speed > 0 else None
         os.environ["PATH"] += os.pathsep + addOn.FireFiles.rustypipe_botguard_path
@@ -3077,17 +3095,21 @@ class DownloadWindow(Gtk.ApplicationWindow):
             print(f"File does not exist: {path}")
             return
 
-        file = Gio.File.new_for_path(path)
-        uri = file.get_uri()
-
-        try:
-            Gio.AppInfo.launch_default_for_uri(uri, None)
-        except Exception as e:
-            print("Failed to launch file via Gio, fallback to xdg-open:", e)
-            if os.name == 'nt':
+        if os.name == 'nt':
+            try:
                 os.startfile(path)
-            else:
+            except Exception as e:
+                print(f"Failed to launch file on Windows: {e}")
+        else:
+            file = Gio.File.new_for_path(path)
+            uri = file.get_uri()
+
+            try:
+                Gio.AppInfo.launch_default_for_uri(uri, None)
+            except Exception as e:
+                print("Failed to launch file via Gio, fallback to xdg-open:", e)
                 subprocess.run(["xdg-open", path])
+                
         self.exit()
 
     def open_file_direct(self, full_file_path):

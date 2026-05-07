@@ -2819,36 +2819,47 @@ class FlameGetManager(Gtk.Application):
                 self.show_toast_popup(f"{self.tr("Couldn't Open Folder")}", color="red_toast")
 
     def show_file_in_folder(self, full_file_path):
-        uri = GLib.filename_to_uri(full_file_path)
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-            
-            bus.call_sync(
-                "org.freedesktop.FileManager1",
-                "/org/freedesktop/FileManager1",
-                "org.freedesktop.FileManager1",
-                "ShowItems",
-                GLib.Variant("(ass)", ([uri], "")), # ass hehe
-                None,
-                Gio.DBusCallFlags.NONE,
-                -1,
-                None
-            )
-        except Exception as e:
-            print(f"Could not highlight file: {e}")
-            parent_folder = os.path.dirname(full_file_path)
-            file = Gio.File.new_for_path(parent_folder)
-            Gio.AppInfo.launch_default_for_uri(file.get_uri(), None)
+        full_file_path = os.path.normpath(full_file_path)
+
+        if os.name == 'nt':
+            try:
+                subprocess.run(['explorer', '/select,', full_file_path])
+            except Exception as e:
+                print(f"Windows Explorer error: {e}")
+                os.startfile(os.path.dirname(full_file_path))
+        else:
+            uri = GLib.filename_to_uri(full_file_path)
+            try:
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+                bus.call_sync(
+                    "org.freedesktop.FileManager1",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1",
+                    "ShowItems",
+                    GLib.Variant("(ass)", ([uri], "")), # ass hehe
+                    None,
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    None
+                )
+            except Exception as e:
+                print(f"Could not highlight file on Linux: {e}")
+                parent_folder = os.path.dirname(full_file_path)
+                subprocess.run(["xdg-open", parent_folder])
             
     def open_file_direct(self, full_file_path):
-        try:
-            file = Gio.File.new_for_path(full_file_path)
-            Gio.AppInfo.launch_default_for_uri(file.get_uri(), None)
-        except Exception as e:
-            print(f"Could not open file: {e}")
-            if os.name == 'nt':
+        if os.name == 'nt':
+            try:
                 os.startfile(full_file_path)
-            else:
+            except Exception as e:
+                print(f"Could not open file on Windows: {e}")
+                
+        else:
+            try:
+                file = Gio.File.new_for_path(full_file_path)
+                Gio.AppInfo.launch_default_for_uri(file.get_uri(), None)
+            except Exception as e:
+                print(f"Could not open file via Gio, fallback to xdg-open: {e}")
                 subprocess.run(["xdg-open", full_file_path])
 
     def delete_selected_items(self, button, selection_model, files_too=None):
