@@ -7,6 +7,7 @@
   <img src="https://github.com/C-Yassin/FlameGet/blob/main/logo.svg" alt="FlameGet">
 </h1>
 <p align="center">
+  <a href="https://flathub.org/en/apps/io.github.C_Yassin.FlameGet"><img alt="Flathub" src="https://img.shields.io/badge/Flathub-Available-purple?logo=flatpak"></a>
   <a href="https://aur.archlinux.org/packages/flameget"><img alt="AUR Package" src="https://img.shields.io/aur/version/flameget?color=blue&label=AUR&logo=arch-linux"></a>
   <a href="https://c-yassin.github.io/Fireweb/">
     <img alt="FlameGet Website" src="https://img.shields.io/badge/Project_Website-orange?&labelColor=gray&logo=firebase&logoColor=orange">
