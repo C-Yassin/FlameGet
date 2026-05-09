@@ -207,7 +207,13 @@
         "Close Window": "Fermer la fenêtre",
         "Quit Application": "Quitter l'application",
         "Row size (px):": "Taille de la ligne (px) :",
-        "Set the size of your rows in pixels": "Définissez la taille de vos lignes en pixels"
+        "Set the size of your rows in pixels": "Définissez la taille de vos lignes en pixels",
+        "HLS Stream Detected": "Flux HLS détecté",
+        "Directly pasting HLS (ending with .m3u8 or .ts) links is not supported.\n\nTo download this video, please open the webpage in your browser and click the <b>FlameGet Extension</b> to catch the stream automatically!": "Coller directement des liens HLS (se terminant par .m3u8 ou .ts) n'est pas pris en charge.\n\nPour télécharger cette vidéo, veuillez ouvrir la page Web dans votre navigateur et cliquer sur l'<b>Extension FlameGet</b> pour capturer le flux automatiquement !",
+        "Copied to clipboard!": "Copié dans le presse-papiers !",
+        "If checked, seeding torrents will be disabled.": "Si coché, le partage des torrents sera désactivé.",
+        "Disable Seeding": "Désactiver le partage",
+        "Check For Updates": "Vérifier les mises à jour"
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -400,7 +406,7 @@
         "Couldn't Open Folder": "No se pudo abrir la carpeta",
         "Icon Design": "Diseño de iconos",
         "Visit FlameGet Repository": "Visitar el repositorio de FlameGet",
-        "A fast, modern download manager.\n\nIcons provided by the XApp Project under the LGPL-3.0 License.": "Un gestor de descargas rápido y moderno.\n\nIconos proporcionados por el Proyecto XApp bajo la licencia LGPL-3.0.",
+        "A fast, modern download manager.\n\nIconos proporcionados por el Proyecto XApp bajo la licencia LGPL-3.0.": "Un gestor de descargas rápido y moderno.\n\nIconos proporcionados por el Proyecto XApp bajo la licencia LGPL-3.0.",
         "Backend Download Engines": "Motores de descarga (Backend)",
         "Essential components installed successfully!": "¡Componentes esenciales instalados con éxito!",
         "Failed to install components. Please check your connection.": "Error al instalar componentes. Por favor, compruebe su conexión.",
@@ -417,7 +423,13 @@
         "Close Window": "Cerrar ventana",
         "Quit Application": "Salir de la aplicación",
         "Row size (px):": "Tamaño de fila (px):",
-        "Set the size of your rows in pixels": "Establezca el tamaño de sus filas en píxeles"
+        "Set the size of your rows in pixels": "Establezca el tamaño de sus filas en píxeles",
+        "HLS Stream Detected": "Flujo HLS detectado",
+        "Directly pasting HLS (ending with .m3u8 or .ts) links is not supported.\n\nTo download this video, please open the webpage in your browser and click the <b>FlameGet Extension</b> to catch the stream automatically!": "Pegar directamente enlaces HLS (que terminan en .m3u8 o .ts) no es compatible.\n\nPara descargar este video, abra la página web en su navegador y haga clic en la <b>Extensión FlameGet</b> para capturar la transmisión automáticamente.",
+        "Copied to clipboard!": "¡Copiado al portapapeles!",
+        "If checked, seeding torrents will be disabled.": "Si se marca, la siembra de torrents se desactivará.",
+        "Disable Seeding": "Desactivar siembra",
+        "Check For Updates": "Buscar actualizaciones"
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -627,7 +639,13 @@
         "Close Window": "Закрыть окно",
         "Quit Application": "Выйти из приложения",
         "Row size (px):": "Размер строки (px):",
-        "Set the size of your rows in pixels": "Установите размер строк в пикселях"
+        "Set the size of your rows in pixels": "Установите размер строк в пикселях",
+        "HLS Stream Detected": "Обнаружен HLS-поток",
+        "Directly pasting HLS (ending with .m3u8 or .ts) links is not supported.\n\nTo download this video, please open the webpage in your browser and click the <b>FlameGet Extension</b> to catch the stream automatically!": "Прямая вставка ссылок HLS (заканчивающихся на .m3u8 или .ts) не поддерживается.\n\nЧтобы скачать это видео, откройте веб-страницу в браузере и нажмите на <b>расширение FlameGet</b> для автоматического перехвата потока!",
+        "Copied to clipboard!": "Скопировано в буфер обмена!",
+        "If checked, seeding torrents will be disabled.": "Если отмечено, раздача торрентов будет отключена.",
+        "Disable Seeding": "Отключить раздачу",
+        "Check For Updates": "Проверить обновления"
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -837,6 +855,12 @@
         "Close Window": "إغلاق النافذة",
         "Quit Application": "الخروج من التطبيق",
         "Row size (px):": "حجم الصف (بكسل):",
-        "Set the size of your rows in pixels": "حدد حجم الصفوف بالبكسل"
+        "Set the size of your rows in pixels": "حدد حجم الصفوف بالبكسل",
+        "HLS Stream Detected": "تم اكتشاف بث HLS",
+        "Directly pasting HLS (ending with .m3u8 or .ts) links is not supported.\n\nTo download this video, please open the webpage in your browser and click the <b>FlameGet Extension</b> to catch the stream automatically!": "لصق روابط HLS (التي تنتهي بـ .m3u8 أو .ts) مباشرة غير مدعوم.\n\nلتحميل هذا الفيديو، يرجى فتح صفحة الويب في متصفحك والضغط على <b>إضافة FlameGet</b> لالتقاط البث تلقائياً!",
+        "Copied to clipboard!": "تم النسخ إلى الحافظة!",
+        "If checked, seeding torrents will be disabled.": "إذا تم تحديده، سيتم تعطيل توزيع التورنت.",
+        "Disable Seeding": "تعطيل التوزيع",
+        "Check For Updates": "التحقق من التحديثات"
     }
 }

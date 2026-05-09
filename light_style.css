@@ -66,7 +66,10 @@ menubutton > button:active{
 .generic-button:active{
     background-color: alpha(@foreground, .5);
 }
-
+.generic-button:disabled {
+    background-image: none;
+    background-color: @background; 
+}
 /* Connected Buttons (Toolbar buttons grouped together) */
 .connected-button{
     background-image: none;
@@ -430,6 +433,7 @@ checkbutton{
 }
 checkbutton check{
     background-image: none;
+    background-color: alpha(@foreground, .8);
 }
 checkbutton:checked check{
     color: #000000;

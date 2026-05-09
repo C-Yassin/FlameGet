@@ -64,13 +64,11 @@ class TorrentNode(GObject.Object):
         self.notify("inconsistent-prop")
 
     def toggle(self, active):
-        """Called when user clicks THIS node's checkbox."""
         self.set_state_recursive(active)
         if self.parent:
             self.parent.recalculate_state()
 
     def set_state_recursive(self, active):
-        """Sets state for self and all children (downwards)."""
         self.checked_prop = active
         self.inconsistent_prop = False
         
@@ -81,7 +79,6 @@ class TorrentNode(GObject.Object):
                 child.set_state_recursive(active)
 
     def recalculate_state(self):
-        """Checks children to determine own state (upwards)."""
         if not self.is_dir: return
 
         n = self.children_store.get_n_items()
@@ -580,7 +577,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             traceback.print_exc()
 
     def parse_torrent_indices(self):
-        """Helper to parse the string of indices into a set of integers"""
         self.parsed_indices = set()
         if hasattr(self, 'torrent_indices') and self.torrent_indices and self.torrent_indices != "None":
             try:
@@ -1032,11 +1028,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
         return False
 
     def on_torrent_chk_toggled(self, checkbox):
-        """Called every time a user clicks a checkbox in the list."""
         self.recalculate_torrent_total_size()
 
     def recalculate_torrent_total_size(self):
-        """Iterates through UI rows to sum up sizes of selected files."""
         new_total_bytes = 0
         selected_indices = []
         
@@ -1368,7 +1362,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
     def build_download_view(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10, margin_bottom=10, margin_start=20, margin_end=20)
-        box.set_size_request(450, -1)
+        box.set_size_request(-1, -1)
         self.info_label = Gtk.Label(label=self.tr("Download Menu"))
         self.info_label.set_markup(f"<big><b>{self.tr('Download Menu')}</b></big>")
         self.info_label.set_halign(Gtk.Align.CENTER)
@@ -1458,7 +1452,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.url_entry.add_css_class("entry")
         self.url_entry.set_text(self.url)
         self.url_entry.set_sensitive(False)
-        self.url_entry.add_css_class("monospace")
         self.url_entry.set_hexpand(True)
 
         # this is so fucking stupid but it works
@@ -1527,6 +1520,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.est_time_label = Gtk.Label(label="")
         self.est_time_label.add_css_class("small-text")
         self.est_time_label.set_hexpand(True)
+        self.set_default_size(self.calculate_required_window_width(), 350)
 
         self.est_time_label.set_ellipsize(Pango.EllipsizeMode.END)
 
@@ -2102,7 +2096,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.threads.append(t)
 
     def _init_aria_download(self, connect_func):
-        """Helper to initialize download after process starts"""
         self.aria_client = connect_func()
         if not self.aria_client:
             print("aria2c_path ", addOn.FireFiles.aria2c_path)
@@ -2924,6 +2917,27 @@ class DownloadWindow(Gtk.ApplicationWindow):
         
         self.trigger_post_download_action()
 
+
+    def calculate_required_window_width(self):
+        # this is weird i know, but it fixes a weird issue with flatpak and users with small screens, the bug cuts-out the label text..
+        dummy_text = (
+            f"<span font_features='tnum=1'>"
+            f"{self.tr('Downloaded:')} <b>999.99MB/999.99MB</b> | "
+            f"{self.tr('Progress:')} <b>100%</b> | "
+            f"{self.tr('Speed:')} <b>999.99MB/s</b> | "
+            f"ETA: <b>99:99:99</b>"
+            f"</span>"
+        )
+
+        layout = self.est_time_label.create_pango_layout("")
+        layout.set_markup(dummy_text)
+
+        text_width, _ = layout.get_pixel_size()
+
+        estimated_window_width = text_width + 50
+
+        return estimated_window_width
+
     def on_stop_seeding_clicked(self, button):
         if self.pause_event.is_set():
             self.pause_event.clear()
@@ -3093,6 +3107,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         if not os.path.isfile(path):
             print(f"File does not exist: {path}")
+            self.exit()
             return
 
         if os.name == 'nt':
@@ -3308,7 +3323,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         return UI_size_str, UI_speed
 
     def tr(self, text):
-        """Simple translation lookup."""
         lang = self.app_settings.get("language", "en")
         if lang in self.translations and text in self.translations[lang]:
             return self.translations[lang][text]
@@ -3389,7 +3403,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             print(f"Tray update failed: {e}")
 
     def is_port_free(self, port):
-        """Try to bind to the port to see if it's available."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
                 s.bind(('', port))
@@ -3460,7 +3473,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         return final_cmd
         
     def trigger_post_download_action(self):
-        """Executes action. Checks local override first, then falls back to global settings."""
         action = self.local_finish_action
         command_to_run = ""
 

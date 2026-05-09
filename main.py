@@ -20,6 +20,8 @@ from urllib.parse import urlparse, unquote, parse_qs
 import Toast as toast
 import FireAddOns as addOn
 import SaveManager
+from updater import SilentUpdater, UpdaterWindow, FLAMEGET_VERSION
+
 yt_dlp = addOn.lazy_import("yt_dlp")
 requests = addOn.lazy_import("requests")
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
@@ -161,7 +163,6 @@ class DownloadItem(GObject.Object):
     def pid_prop(self): return self.pid
 
     def update_data(self, row):
-        """Update data and notify UI only if changed. No splice needed."""
         if self.filename != row['filename']:
             self.filename = row['filename']
             self.notify("name-prop")
@@ -256,7 +257,6 @@ class FlameGetManager(Gtk.Application):
         self.setup_signal_handlers()
 
     def tr(self, text):
-        """Simple translation lookup."""
         lang = self.app_settings.get("language", "en")
         if lang in self.translations and text in self.translations[lang]:
             return self.translations[lang][text]
@@ -425,7 +425,8 @@ class FlameGetManager(Gtk.Application):
         
         self.check_and_install_dependencies(self.window)
         self.apply_cursor_recursive(self.window, "pointer")
-        
+        check_for_updates = SilentUpdater(application=self, is_hidden=True) 
+        check_for_updates.check_silently()
         GLib.idle_add(self.update_stats_labels)
         GLib.timeout_add(200, self.on_global_tick)
         
@@ -456,7 +457,6 @@ class FlameGetManager(Gtk.Application):
         GLib.idle_add(self.drop_box.set_visible, False)
 
     def build_custom_context_menu(self):
-        """Creates a custom Popover with styled buttons."""
         self.context_popover = Gtk.Popover()
         self.context_popover.add_css_class("context_popover")
         self.context_popover.set_has_arrow(False)
@@ -486,7 +486,6 @@ class FlameGetManager(Gtk.Application):
         self._add_menu_item("Delete File", "xsi-user-trash-symbolic", self.ctx_delete_file, "destructive-action")
 
     def _add_menu_item(self, label, icon_name, callback, css_class=None):
-        """Helper to create a flat button that looks like a menu item."""
         btn = Gtk.Button()
         btn.add_css_class("flat")
         if css_class:
@@ -520,7 +519,6 @@ class FlameGetManager(Gtk.Application):
         self.context_menu_box.append(sep)
 
     def _get_first_selected(self):
-        """Helper to get the actual DownloadItem object of the first selected row."""
         if not self.selection_model: return None
         selection = self.selection_model.get_selection()
         if selection.is_empty(): return None
@@ -600,7 +598,6 @@ class FlameGetManager(Gtk.Application):
         for item, _ in redo_list:
             if not item or item.filename.strip() == "":
                 continue
-
             cursor.execute("DELETE FROM downloads WHERE id = ?", (item.id,))
             pid = int(item.pid)
             if pid > 0 and addOn.is_pid_alive(pid):
@@ -663,6 +660,13 @@ class FlameGetManager(Gtk.Application):
         if not is_compiled:
             args.append(os.path.abspath(self.downloader_script_path))
         for _, data in redo_list:
+            if ".m3u8" in data["url"].lower() or ".ts" in data["url"].lower():
+                self.notify_user_about_hls_video()
+                clipboard = self.window.get_clipboard()
+                clipboard.set(data["url"])
+                self.show_toast_popup("Copied to clipboard!")
+                continue
+
             cmd = [
                 *args,
                 data["url"],
@@ -836,6 +840,7 @@ class FlameGetManager(Gtk.Application):
         sep.set_margin_top(4); sep.set_margin_bottom(4)
         help_box.append(sep)
         
+        add_help_item("Check For Updates", "xsi-software-update-available-symbolic", lambda *args: UpdaterWindow(transient_for=self.window).present())
         add_help_item("Report a Bug", "xsi-github-symbolic", lambda: self.open_url("https://github.com/C-Yassin/flameget/issues"))
         add_help_item("Donate", "xsi-emblem-favorite-symbolic", lambda: self.open_url("https://github.com/C-Yassin/flameget"))
 
@@ -1069,6 +1074,12 @@ class FlameGetManager(Gtk.Application):
         start_minimized.set_active(self.app_settings.get("start_in_minimize_mode", False))
         start_minimized.connect("toggled", lambda b: self.app_settings.update({"start_in_minimize_mode": b.get_active()}) or SaveManager.save_settings(self.app_settings))
         gen_box.append(start_minimized)
+
+        disable_seeding = Gtk.CheckButton(label=self.tr("Disable Seeding"))
+        disable_seeding.set_tooltip_text(self.tr("If checked, seeding torrents will be disabled."))
+        disable_seeding.set_active(self.app_settings.get("disable_seeding", False))
+        disable_seeding.connect("toggled", lambda b: self.app_settings.update({"disable_seeding": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        gen_box.append(disable_seeding)
 
         stack.add_named(gen_box, "General")
 
@@ -1984,11 +1995,12 @@ class FlameGetManager(Gtk.Application):
         self.on_url_entry_changed(entry)
         
     def on_start_download_clicked(self, btn, dialog, local_torrent_path):
-        """Determines which logic to run based on the visible stack page."""
         url = self.entry_url.get_text().strip()
         if url == "":
             return
-
+        if ".m3u8" in url.lower() or ".ts" in url.lower():
+            self.notify_user_about_hls_video()
+            return
         mode = self.dialog_stack.get_visible_child_name()
 
         if mode == "youtube":
@@ -2128,7 +2140,6 @@ class FlameGetManager(Gtk.Application):
         return None
 
     def _parse_torrent_file(self, file_path):
-        """Helper: Runs aria2c -S, parses the output, and updates the UI."""
         cmd = [addOn.FireFiles.aria2c_path, "-S", file_path]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
         
@@ -2586,7 +2597,6 @@ class FlameGetManager(Gtk.Application):
             self.resume_download(None, self.selection_model)
 
     def on_row_right_click(self, gesture, n_press, x, y, list_item):
-        """Handle right click: Select item + Calc position + Popup"""
         item = list_item.get_item()
         if item is None: return
 
@@ -3512,7 +3522,6 @@ class FlameGetManager(Gtk.Application):
             self.lbl_schedule_info.set_text(self.tr("Invalid Date"))
 
     def get_schedule_timestamp(self):
-        """Constructs unix timestamp from the spinners"""
         day = self.spin_day.get_value_as_int()
         month = self.spin_month.get_value_as_int()
         year = self.spin_year.get_value_as_int()
@@ -4002,8 +4011,6 @@ class FlameGetManager(Gtk.Application):
                     return False, 0, filename
 
     def on_window_key_pressed(self, controller, keyval, keycode, state, dialog=None):
-        """Global keyboard shortcut handler using customized keys."""
-        
         valid_mods = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK
         clean_state = state & valid_mods
 
@@ -4059,7 +4066,6 @@ class FlameGetManager(Gtk.Application):
         return False
 
     def toggle_autostart(self, enable):
-        """Creates or removes the XDG autostart entry for FlameGet."""
         if os.name == 'nt':
             import winreg
             try:
@@ -4195,6 +4201,64 @@ class FlameGetManager(Gtk.Application):
             GLib.idle_add(self.btn_queue.set_sensitive, False)
             entry.set_tooltip_text(f"{self.tr('Invalid path')}: {str(e)}")
 
+    def notify_user_about_hls_video(self):
+        dialog = Gtk.Window(
+            title=self.tr("HLS Stream Detected"),
+            transient_for=self.window,
+            modal=True,
+            destroy_with_parent=True
+        )
+        dialog.set_default_size(450, -1)
+        dialog.set_resizable(False)
+
+        icon = Gtk.Image.new_from_icon_name("dialog-warning")
+        icon.set_pixel_size(48)
+        icon.set_valign(Gtk.Align.START)
+
+        primary_text = f'<b><span size="large">{self.tr("HLS Stream Detected")}</span></b>'
+        primary_label = Gtk.Label(label=primary_text, use_markup=True)
+        primary_label.set_halign(Gtk.Align.START)
+
+        secondary_text = self.tr("Directly pasting HLS (ending with .m3u8 or .ts) links is not supported.\n\nTo download this video, please open the webpage in your browser and click the <b>FlameGet Extension</b> to catch the stream automatically!")
+        secondary_label = Gtk.Label(label=secondary_text, use_markup=True, wrap=True)
+        secondary_label.set_halign(Gtk.Align.START)
+
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        text_box.append(primary_label)
+        text_box.append(secondary_label)
+
+        top_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        top_box.set_margin_top(25)
+        top_box.set_margin_bottom(20)
+        top_box.set_margin_start(25)
+        top_box.set_margin_end(25)
+        top_box.append(icon)
+        top_box.append(text_box)
+
+        ok_button = Gtk.Button(label="OK")
+        ok_button.add_css_class("green-btn")
+        ok_button.set_hexpand(True)
+        ok_button.connect("clicked", lambda btn: dialog.destroy())
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        action_box.set_hexpand(True)
+
+        action_box.append(ok_button)
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        main_box.append(top_box)
+        main_box.append(action_box)
+
+        dialog.set_child(main_box)
+
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self.on_window_key_pressed, dialog)
+        dialog.add_controller(key_controller)
+        
+        GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
+
+        dialog.present()
+
     def is_yt_dlp(self, url): 
         found = False
         clean_url = url.lower()
@@ -4305,7 +4369,6 @@ class FlameGetManager(Gtk.Application):
             default_width=400
         )
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
-        dialog.add_css_class("dialog")
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         content_box.set_margin_top(18)
@@ -4470,7 +4533,6 @@ class FlameGetManager(Gtk.Application):
             self.window.set_visible(True)
 
     def on_window_close_request(self, win):
-        """Override the close button to minimize to tray."""
         if self.tray_process and self.tray_process.poll() is None:
             self.window.set_visible(False)
             return True
@@ -4557,7 +4619,6 @@ class FlameGetManager(Gtk.Application):
         return True
 
     def setup_signal_handlers(self):
-        """Registers system signal handlers for clean shutdown."""
         signal.signal(signal.SIGINT, self.emergency_cleanup)
         signal.signal(signal.SIGTERM, self.emergency_cleanup)
 
@@ -4647,7 +4708,6 @@ class FlameGetManager(Gtk.Application):
             self.tray_process = None
 
     def open_url(self, url):
-        """Opens a web link in the user's default browser."""
         try:
             Gio.AppInfo.launch_default_for_uri(url, None)
         except Exception as e:
@@ -4659,7 +4719,7 @@ class FlameGetManager(Gtk.Application):
         about.set_modal(True)
         
         about.set_program_name("FlameGet")
-        about.set_version("1.0.0") 
+        about.set_version(FLAMEGET_VERSION) 
         
         about.set_comments(self.tr("A fast, modern download manager.\n\nIcons provided by the XApp Project under the LGPL-3.0 License."))
         

@@ -71,7 +71,10 @@ menubutton > button:active{
 .generic-button:active{
     background-color: alpha(@foreground, .5);
 }
-
+.generic-button:disabled {
+    background-image: none;
+    background-color: @background; 
+}
 /* Connected Buttons (Toolbar buttons grouped together) */
 .connected-button{
     background-image: none;
@@ -432,6 +435,7 @@ checkbutton{
 }
 checkbutton check{
     background-image: none;
+    background-color: alpha(@foreground, .8);
 }
 checkbutton check:disabled {
     background-image: none;
@@ -812,13 +816,16 @@ stackswitcher.downloader button:checked {
 .tracker-item:hover{
     background-color: @foreground;
 }
+
 .del-tracker-item{
-    margin-left: 10px;
+    min-width: 1px;
+    min-height: 1px;
     border-radius: 3px;
-    padding: .1px;
+    color: white;
     background-image: none;
     background-color: @red;
     border: 1px solid @red;
+    padding: 0px;
 }
 .del-tracker-item:hover{
     background-color: alpha(@red, .8);

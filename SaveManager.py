@@ -99,6 +99,7 @@ def load_settings(download_folder=""):
         "start_in_minimize_mode": False,
         "auto_start": False,
         "global_speed_limit": "0",
+        "disable_seeding": False,
         "cells_size": 1,
         "browser_port": 6812,
         "sort_column": "Date Added",
