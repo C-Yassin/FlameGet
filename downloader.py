@@ -3588,6 +3588,7 @@ class DownloaderAppManager(Gtk.Application):
             user_agent=args.user_agent,
             referer=args.referer
         )
+        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, "FlameGet Downloader", "FlameGet")
         win.present()
         
         return 0
