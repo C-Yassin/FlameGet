@@ -425,8 +425,6 @@ class FlameGetManager(Gtk.Application):
         
         self.check_and_install_dependencies(self.window)
         self.apply_cursor_recursive(self.window, "pointer")
-        check_for_updates = SilentUpdater(application=self, is_hidden=True) 
-        check_for_updates.check_silently()
         GLib.idle_add(self.update_stats_labels)
         GLib.timeout_add(200, self.on_global_tick)
         
@@ -4359,6 +4357,9 @@ class FlameGetManager(Gtk.Application):
         need_botguard = not os.path.exists(botguard_path)
 
         if not need_ffmpeg and not need_botguard:
+            check_for_updates = SilentUpdater(application=self, is_hidden=True) 
+            check_for_updates.check_silently()
+            
             return True 
 
         dialog = Gtk.Window(
@@ -4496,6 +4497,8 @@ class FlameGetManager(Gtk.Application):
                     st = os.stat(botguard_path)
                     os.chmod(botguard_path, st.st_mode | stat.S_IEXEC)
 
+            check_for_updates = SilentUpdater(application=self, is_hidden=True) 
+            check_for_updates.check_silently()
             GLib.idle_add(self.on_download_success, dialog)
             
         except Exception as e:
@@ -4680,7 +4683,7 @@ class FlameGetManager(Gtk.Application):
         if os.name != "nt":
             TRAY_SOCKET_PATH = f"{"\0" if is_flatpak_env else ""}flameget_tray_listener{"" if is_flatpak_env else ".sock"}"
         else:
-            TRAY_SOCKET_PATH = os.path.join(runtime_dir, "flameget_tray_listener.sock")
+            TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
         try:
             if os.name == 'nt':
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
