@@ -196,4 +196,7 @@ class SilentUpdater:
                 self.window = UpdaterWindow()
                 
         self.window.present()
+        if os.name == 'nt':
+            from FireAddOns import force_center_dialog
+            GLib.timeout_add(50, force_center_dialog, "FlameGet Updater", "FlameGet")
         self.window.fetch_version()
