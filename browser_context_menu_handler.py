@@ -74,6 +74,7 @@ class VideoAnalyzer(Gtk.Application):
 
         self.spinner.start()
         self.window.present()
+        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, "FlameGet - Analyzer", "FlameGet")
 
         threading.Thread(target=self.fetch_metadata, daemon=True).start()
 
