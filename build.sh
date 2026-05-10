@@ -33,7 +33,7 @@ if [[ "$OS" == "arch" || "$OS_LIKE" == *"arch"* ]]; then
     echo "-> Running Arch Linux build process..."
     
     echo "Installing official dependencies..."
-    sudo pacman -S --needed --noconfirm base-devel git python python-gobject gtk4 aria2 python-pycurl yt-dlp python-requests python-flask python-waitress libappindicator-gtk3
+    sudo pacman -S --needed --noconfirm base-devel git curl xdg-user-dirs python python-gobject gtk4 aria2 python-pycurl yt-dlp python-requests python-flask python-waitress python-certifi libappindicator
     
     if pacman -Qi $AUR_DEP &> /dev/null; then
         echo "AUR dependency '$AUR_DEP' is already installed."
@@ -73,8 +73,8 @@ elif [[ "$OS" == "debian" || "$OS" == "ubuntu" || "$OS_LIKE" == *"debian"* || "$
     sudo apt update
     
     echo "Installing system dependencies..."
-    sudo apt install -y git python3 python3-pip python3-gi gir1.2-gtk-4.0 \
-        gir1.2-appindicator3-0.1 libappindicator3-1 aria2 python3-pycurl yt-dlp python3-requests python3-flask python3-waitress
+    sudo apt install -y git curl python3 python3-pip python3-gi gir1.2-gtk-4.0 \
+        gir1.2-appindicator3-0.1 libappindicator3-1 aria2 python3-pycurl yt-dlp python3-requests python3-certifi python3-flask python3-waitress xdg-user-dirs
         
     echo "Installing python package '$AUR_DEP'..."
     sudo pip3 install aria2p --break-system-packages 2>/dev/null || sudo pip3 install aria2p
