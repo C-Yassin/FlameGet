@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+import os
+os.environ['GSK_RENDERER'] = 'cairo'
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib, Gio, Pango, GObject
 import threading, random
 import subprocess, socket
-import os, sys, re, time
+import sys, re, time
 import argparse
 import atexit, signal, shutil
 import json, tempfile
@@ -265,11 +267,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
         #Ignore this, it's for sudden shutdowns of the application, intended to clear selflock file.... fuuck
         tray_toggle_system_server = threading.Thread(target=self.start_listener, daemon=True)
         tray_toggle_system_server.start()
-        atexit.register(self.exit)
-        signal.signal(signal.SIGTERM, self.handle_sigterm)
-        signal.signal(signal.SIGINT, self.handle_sigterm)
-        if HAS_SIGUSR1:
-            signal.signal(signal.SIGUSR1, lambda signum, frame : self.on_pause_clicked(None))
+        
+        self.connect("close-request", self.on_close_request)
+        self.connect("destroy", self.exit)
 
         self.set_title(self.app_name)
         self.set_default_size(650, 350)
@@ -346,15 +346,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.yt_dlp_proc.terminate()
             self.yt_dlp_proc.wait(timeout=2)
 
-        if hasattr(self, 'threads'):
-            for t in self.threads:
-                if t.is_alive():
-                    try:
-                        t.join(timeout=2)
-                    except Exception as e:
-                        print(f"Error joining thread: {e}")
-
-    
         self.pause_download()
 
         if hasattr(self, 'conn'):
@@ -3178,7 +3169,17 @@ class DownloadWindow(Gtk.ApplicationWindow):
         dialog.set_default_size(400, 125)
         dialog.set_resizable(False)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
-        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
+        if os.name == 'nt': 
+            unique_dialog_title = f"{self.tr('Cancel Confirmation')} - {self.port}"
+            dialog.set_title(unique_dialog_title)
+            
+            def center_dialog():
+                addOn.force_center_dialog(unique_dialog_title, "FlameGet")
+                dialog.set_title(self.tr("Cancel Confirmation"))
+                return False
+                
+            GLib.timeout_add(50, center_dialog)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                     margin_top=20, margin_bottom=20, margin_start=20, margin_end=20)
         buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -3232,13 +3233,30 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.aria_proc.wait(timeout=2)
         if self.delete_files_also_check_btn.get_active():
             if self.is_torrent:
+                if hasattr(self, 'meta_path') and os.path.exists(self.meta_path):
+                    try: 
+                        Gio.File.new_for_path(self.meta_path).trash(None)
+                    except Exception as e:
+                        print(f"Failed to trash meta file: {e}")
+                        try: os.remove(self.meta_path)
+                        except: pass
+                
                 full_path = os.path.join(self.download_folder, self.FileName)
-                meta_junk = Gio.File.new_for_path(self.meta_path)
-                torrent_folder = Gio.File.new_for_path(full_path)
-                meta_junk.trash(None)
-                torrent_folder.trash(None)
+                if os.path.exists(full_path):
+                    try: 
+                        Gio.File.new_for_path(full_path).trash(None)
+                    except Exception as e:
+                        print(f"Failed to trash torrent folder: {e}")
+                        try:
+                            if os.path.isdir(full_path):
+                                shutil.rmtree(full_path)
+                            else:
+                                os.remove(full_path)
+                        except: pass
+
                 try: 
-                    os.remove(self.output_file)
+                    if os.path.exists(self.output_file):
+                        os.remove(self.output_file)
                 except: pass
             if self.is_yt_dlp:
                 path = self.find_active_part_yt_dlp(self.FileName, self.download_folder)
@@ -3255,10 +3273,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         except: pass
                 else:
                     for f in self.part_files:
-                        try:
-                            os.remove(f)
-                        except:
-                            pass
+                        if os.path.exists(f):
+                            try: os.remove(f)
+                            except: pass
             
         self.reset_ui()
         dialog.destroy()
@@ -3388,18 +3405,27 @@ class DownloadWindow(Gtk.ApplicationWindow):
             msg_progress = msg if msg.strip() != "" else str(self.progress) if self.progress else "0"
             message = f"pid:{self.FileName}:{msg_progress}:{self.pid}:{self.port}:{can_delete}"
 
-            if os.name != 'nt':
-                if TRAY_SOCKET_PATH.startswith('\0') or os.path.exists(TRAY_SOCKET_PATH):
-                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                        client.connect(TRAY_SOCKET_PATH)
-                        client.sendall(message.encode())
-            else:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-                    client.connect(('127.0.0.1', WINDOWS_TRAY_PORT))
-                    client.sendall(message.encode())
-                    
-        except ConnectionRefusedError:
-            pass
+            def _send_socket():
+                if os.name != 'nt':
+                    if TRAY_SOCKET_PATH.startswith('\0') or os.path.exists(TRAY_SOCKET_PATH):
+                        try:
+                            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                                client.settimeout(0.5) # Don't wait forever
+                                client.connect(TRAY_SOCKET_PATH)
+                                client.sendall(message.encode())
+                        except Exception: 
+                            pass
+                else:
+                    try:
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+                            client.settimeout(0.5) # Don't wait forever
+                            client.connect(('127.0.0.1', WINDOWS_TRAY_PORT))
+                            client.sendall(message.encode())
+                    except Exception: 
+                        pass
+
+            threading.Thread(target=_send_socket, daemon=True).start()
+
         except Exception as e:
             print(f"Tray update failed: {e}")
 
@@ -3589,11 +3615,19 @@ class DownloaderAppManager(Gtk.Application):
             user_agent=args.user_agent,
             referer=args.referer
         )
-        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, "FlameGet Downloader", "FlameGet")
+        if os.name == 'nt': 
+            unique_title = f"FlameGet Downloader - {win.port}"
+            win.set_title(unique_title)
+            
+            def center_and_restore():
+                addOn.force_center_dialog(unique_title, "FlameGet")
+                win.set_title(win.app_name)
+                return False
+                
+            GLib.timeout_add(50, center_and_restore)
         win.present()
         
         return 0
-
 
 def main():
     app = DownloaderAppManager()
