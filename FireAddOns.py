@@ -1,5 +1,5 @@
 import importlib, sys, re, os
-import shutil, psutil
+import shutil, psutil, filecmp
 
 import gi
 gi.require_version('Gtk', '4.0')
@@ -68,23 +68,60 @@ class _FileManager():
         
         for filename in editable_files:
             user_path = os.path.join(self.config_dir, filename)
+            
             if self.is_compiled:
                 system_path = os.path.join(self.install_dir, "_internal", filename)
             else:
                 system_path = os.path.join(self.install_dir, filename)
+
             if not os.path.exists(user_path):
                 if os.path.exists(system_path):
                     try:
-                        if self.is_compiled:
-                            shutil.move(system_path, user_path)
-                        else:
-                            shutil.copy2(system_path, user_path)
+                        shutil.copy2(system_path, user_path)
                         print(f"Copied default {filename} to user config.")
                     except Exception as e:
                         print(f"Failed to copy {filename}: {e}")
                 else:
                     open(user_path, 'a').close()
-                    print(f"making empty one {filename}")
+                    print(f"Made empty {filename}")
+            
+            else:
+                if not os.path.exists(system_path):
+                    continue
+
+                if filename.endswith(".json"):
+                    try:
+                        if filecmp.cmp(system_path, user_path, shallow=False):
+                            continue 
+                            
+                        with open(system_path, 'r', encoding='utf-8') as sf:
+                            system_data = json.load(sf)
+                        with open(user_path, 'r', encoding='utf-8') as uf:
+                            try:
+                                user_data = json.load(uf)
+                            except json.JSONDecodeError:
+                                user_data = {}
+                        
+                        updated = False
+                        for key, value in system_data.items():
+                            if key not in user_data:
+                                user_data[key] = value
+                                updated = True
+                                
+                        if updated:
+                            with open(user_path, 'w', encoding='utf-8') as uf:
+                                json.dump(user_data, uf, indent=4, ensure_ascii=False)
+                            print(f"Updated {filename} with new translation keys.")
+                    except Exception as e:
+                        print(f"Failed to merge {filename}: {e}")
+
+                elif filename in ["dark_style.css", "light_style.css"]:
+                    try:
+                        if not filecmp.cmp(system_path, user_path, shallow=False):
+                            shutil.copy2(system_path, user_path)
+                            print(f"Updated {filename} with new system styles.")
+                    except Exception as e:
+                        print(f"Failed to update {filename}: {e}")
 
 FireFiles = _FileManager()
 
