@@ -6,6 +6,8 @@ import platform
 import threading
 import io
 import zipfile
+import ssl
+import certifi
 
 import gi
 gi.require_version('Gtk', '4.0')
@@ -76,7 +78,10 @@ class UpdaterWindow(Gtk.ApplicationWindow):
     def fetch_version(self):
         try:
             req = urllib.request.Request(API_URL, headers={'User-Agent': 'FlameGet-Updater'})
-            with urllib.request.urlopen(req) as response:
+            
+            safe_context = ssl.create_default_context(cafile=certifi.where())
+            
+            with urllib.request.urlopen(req, context=safe_context) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 
                 self.latest_version = data.get("tag_name")
@@ -136,7 +141,10 @@ class UpdaterWindow(Gtk.ApplicationWindow):
     def download_and_apply_portable(self):
         try:
             req = urllib.request.Request(self.download_url, headers={'User-Agent': 'FlameGet-Updater'})
-            with urllib.request.urlopen(req) as response:
+            
+            safe_context = ssl.create_default_context(cafile=certifi.where())
+            
+            with urllib.request.urlopen(req, context=safe_context) as response:
                 zip_data = io.BytesIO(response.read())
                 
                 with zipfile.ZipFile(zip_data) as zip_ref:
@@ -176,7 +184,10 @@ class SilentUpdater:
     def _fetch_and_compare(self):
         try:
             req = urllib.request.Request(API_URL, headers={'User-Agent': 'FlameGet-Updater'})
-            with urllib.request.urlopen(req) as response:
+            
+            safe_context = ssl.create_default_context(cafile=certifi.where())
+            
+            with urllib.request.urlopen(req, context=safe_context) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 latest_version = data.get("tag_name")
 
