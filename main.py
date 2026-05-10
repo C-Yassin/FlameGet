@@ -13,6 +13,7 @@ if __name__ == '__main__':
         browser_context_menu_handler.main()
         sys.exit(0)
 
+os.environ['GSK_RENDERER'] = 'cairo'
 import gi, signal, subprocess, shutil, time, json, re, socket, threading, tempfile
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gio, GObject, Gdk, GLib, Graphene, Pango
