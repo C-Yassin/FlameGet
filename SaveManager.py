@@ -1,7 +1,6 @@
 import os
 import json
 import sqlite3
-
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Gio
@@ -154,6 +153,7 @@ class DownloadDatabase:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
+        self.conn.execute("PRAGMA busy_timeout=5000;")
         self.create_table()
 
     def clean_startup(self):
