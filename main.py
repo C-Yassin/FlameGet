@@ -1491,6 +1491,7 @@ class FlameGetManager(Gtk.Application):
     def add_url_button(self, btn, local_torrent_path=None):
         self.add_url_dialog = Gtk.Dialog(title=self.tr("New Download"), transient_for=self.window, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, self.add_url_dialog.get_title(), self.app_settings.get("theme_mode"))
+        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, self.add_url_dialog.get_title(), "FlameGet")
 
         key_controller = Gtk.EventControllerKey()
         key_controller.connect("key-pressed", self.on_window_key_pressed, self.add_url_dialog)
@@ -2302,6 +2303,8 @@ class FlameGetManager(Gtk.Application):
     def on_add_tracker_clicked(self, btn):
         dialog = Gtk.Dialog(title=self.tr("Add Trackers"), transient_for=self.add_url_dialog, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
+        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
+
         dialog.set_default_size(450, 300)
         key_controller = Gtk.EventControllerKey()
         key_controller.connect("key-pressed", self.on_window_key_pressed, dialog)
@@ -2887,6 +2890,8 @@ class FlameGetManager(Gtk.Application):
         
         dialog = Gtk.Dialog(title=self.tr("Delete Confirmation"), transient_for=self.window, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
+        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
+
         dialog.set_default_size(400, 125)
         dialog.connect("close-request", lambda x: setattr(self, 'can_delete_dialog', None))
         self.can_delete_dialog = dialog
