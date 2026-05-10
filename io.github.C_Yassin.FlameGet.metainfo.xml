@@ -53,15 +53,13 @@
 
     <releases>
         <release version="v1.2" date="2026-05-10">
-            <description>
-                - Added HLS &amp; M3U8 &amp; TS support
-                - Added HLS &amp; M3U8 &amp; TS URL checking
-                - Fixed opening items on Windows
-                - Fixed some UI bugs
-                - Added Auto-Updater
-                - Added Tab to check for updates
-                - Fixed menus appearance issue
-            </description>
+            <p>Added HLS, M3U8, and TS support</p>
+            <p>Added HLS, M3U8, and TS URL checking</p>
+            <p>Fixed opening items on Windows</p>
+            <p>Fixed some UI bugs</p>
+            <p>Added Auto-Updater</p>
+            <p>Added Tab to check for updates</p>
+            <p>Fixed menus appearance issue</p>
         </release>
     </releases>
 
