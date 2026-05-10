@@ -3,8 +3,8 @@ import sys
 import os
 import subprocess
 import threading
+os.environ['GSK_RENDERER'] = 'cairo'
 import gi
-
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib, Gio
 import argparse
