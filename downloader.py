@@ -3178,6 +3178,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         dialog.set_default_size(400, 125)
         dialog.set_resizable(False)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
+        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                     margin_top=20, margin_bottom=20, margin_start=20, margin_end=20)
         buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
