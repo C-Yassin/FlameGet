@@ -7,3 +7,4 @@ waitress
 aria2p
 psutil
 yt-dlp-get-pot-rustypipe
+certifi
