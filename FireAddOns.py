@@ -1,5 +1,5 @@
 import importlib, sys, re, os
-import shutil, psutil, filecmp
+import shutil, psutil, filecmp, json
 
 import gi
 gi.require_version('Gtk', '4.0')
