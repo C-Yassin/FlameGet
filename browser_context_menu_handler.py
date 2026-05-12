@@ -171,19 +171,33 @@ class VideoAnalyzer(Gtk.Application):
         print("final name is ", filename_to_use)
         return True, file_size, filename_to_use
 
+    def check_and_fix_filename(self, name_to_check):
+        base_name, ext = os.path.splitext(name_to_check)
+        new_name = name_to_check
+        counter = 1
+
+        while os.path.exists(os.path.join(self.directory, new_name)):
+            print(f"'{new_name}' already exists! Trying next number...")
+            new_name = f"{base_name}({counter}){ext}"
+            counter += 1
+
+        self.filename = new_name
+
     def fetch_metadata(self):
         try:
             if not self.is_playlist:
                 success, size, name = self.fetch_head_info(self.url, self.ext, self.is_audio, self.quality, self.is_playlist)
                 if success:
-                    self.file_size_bytes = size
                     self.filename = name
+                    if os.path.exists(os.path.join(self.directory, self.filename)): self.check_and_fix_filename(name)
+                    self.file_size_bytes = size
+                 
                 else:
                     self.file_size_bytes = 0
-                    self.filename = self.filename if not self.filename.strip() == "" else "Unknown"
+                    self.filename = (self.filename and self.filename.strip()) or "Unknown"
             else:
                 self.file_size_bytes = 0
-                self.filename = self.filename if not self.filename.strip() == "" else "Unknown"
+                self.filename = (self.filename and self.filename.strip()) or "Unknown"
 
             GLib.idle_add(self.on_metadata_fetched)
         except Exception as e:
@@ -320,8 +334,10 @@ class VideoAnalyzer(Gtk.Application):
         else:
             self.dd_fmt.set_selected(0)
 
+        self._fetch_counter = 0
+        self.dd_quality.connect("notify::selected", self.on_quality_changed)
+        self.dd_fmt.connect("notify::selected", self.on_quality_changed)
 
-        # --- Row 8:Checkboxes ---
         def on_toggle(btn):
             if btn: self.is_playlist = btn.get_active()
 
@@ -367,7 +383,6 @@ class VideoAnalyzer(Gtk.Application):
         grid.attach(self.chk_include_subs, 1, row, 1, 1)
         row += 1
 
-        # --- Buttons ---
         btn_box = Gtk.Box(spacing=10)
         btn_box.set_margin_top(15)
         
@@ -385,6 +400,45 @@ class VideoAnalyzer(Gtk.Application):
         btn_box.append(btn_cancel)
         btn_box.append(btn_download)
         self.main_box.append(btn_box)
+
+    def on_quality_changed(self, dd, pspec):
+        quality_item = self.dd_quality.get_selected_item()
+        fmt_item = self.dd_fmt.get_selected_item()
+        
+        if not quality_item or not fmt_item: 
+            return
+            
+        is_audio = self.dd_type.get_selected() == 1 
+        quality_str = quality_item.get_string()
+        ext = "." + fmt_item.get_string()
+
+        self.lbl_size.set_markup("<b>Calculating...</b>")
+        
+        if not hasattr(self, '_fetch_counter'):
+            self._fetch_counter = 0
+            
+        self._fetch_counter += 1
+        current_fetch = self._fetch_counter
+
+        threading.Thread(
+            target=self._background_refetch_size, 
+            args=(is_audio, quality_str, ext, current_fetch), 
+            daemon=True
+        ).start()
+
+    def _background_refetch_size(self, is_audio, quality_str, ext, fetch_id):
+        success, size, _ = self.fetch_head_info(self.url, ext, is_audio, quality_str, self.is_playlist)
+        GLib.idle_add(self._update_size_ui, success, size, fetch_id)
+
+    def _update_size_ui(self, success, size, fetch_id):
+        if fetch_id != getattr(self, '_fetch_counter', 0):
+            return
+            
+        self.file_size_bytes = size if success else 0
+            
+        size_str = self.parse_size(self.file_size_bytes)
+        escaped_str = GLib.markup_escape_text(size_str)
+        self.lbl_size.set_markup(f"<b>{escaped_str}</b>")
 
     def on_type_changed(self, dd, pspec):
         selected = dd.get_selected()

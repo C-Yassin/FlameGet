@@ -216,6 +216,36 @@ def categorize_filename(filename, is_torrent=False):
 
     return "Documents"
 
+def _delete_active_part_worker(filename, directory):
+    base_name = os.path.splitext(filename)[0]
+    suffix_pattern = re.compile(r"\.(part|ytdl)(-Frag\d+)?(\.part)?$")    
+    
+    active_files = []
+    for name in os.listdir(directory):
+        if name.startswith(base_name) and suffix_pattern.search(name):
+            active_files.append(os.path.join(directory, name))
+            
+    if not active_files:
+        print("got NONE!")
+        return None
+
+    print(f"got {active_files}")
+    active_files.append(os.path.join(directory, filename))
+    deleted_count = 0
+    for file_to_delete in active_files:
+        try:
+            os.remove(file_to_delete)
+            deleted_count += 1
+        except OSError:
+            pass
+
+def find_active_part_yt_dlp(filename, directory):
+    base_name = os.path.splitext(filename)[0]
+    for name in os.listdir(directory):
+        if name.startswith(base_name) and (name.endswith(".part") or name.endswith(".ytdl")):
+            return os.path.join(directory, name)
+    return None
+
 #for the downloader
 def parse_size(file_size_in_bytes):
     return (

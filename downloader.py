@@ -8,7 +8,7 @@ import threading, random
 import subprocess, socket
 import sys, re, time
 import argparse
-import atexit, signal, shutil
+import signal, shutil
 import json, tempfile
 import hashlib
 import SaveManager
@@ -547,7 +547,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             download_label = self.tr("Download")
             
             if self.is_yt_dlp:
-                path = self.find_active_part_yt_dlp(self.FileName, self.download_folder)
+                path = addOn.find_active_part_yt_dlp(self.FileName, self.download_folder)
                 if path and os.path.exists(path):
                     download_label = self.tr("Resume")
             else:
@@ -2549,6 +2549,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     
                     try:
                         percent = float(frag_index) / float(frag_count)
+                        self.progress = round(percent * 100, 1)
                         GLib.idle_add(self.progress_bars[0].set_fraction, percent)
                         percent_str = f"({percent*100:.1f}%)"
                     except (ValueError, TypeError, ZeroDivisionError):
@@ -2711,9 +2712,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
             else:
                 print(f"YTDLP Error: {e}")
                 GLib.idle_add(self.status_label.set_text, self.tr("Error during YouTube download"))
-                
         except Exception as e:
             print(f"Critical Error: {e}")
+        
+        threading.Thread(
+            target=addOn._delete_active_part_worker, 
+            args=(self.FileName, self.download_folder),
+            daemon=False
+        ).start()
 
     def _animate_progress(self):
         diff = self.target_fraction - self.current_fraction
@@ -2865,7 +2871,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             os.remove(self.lock_file)
 
         if self.is_yt_dlp:
-            path = self.find_active_part_yt_dlp(self.FileName, self.download_folder)
+            path = addOn.find_active_part_yt_dlp(self.FileName, self.download_folder)
             if path and os.path.exists(path):
                 os.remove(path)
 
@@ -3259,7 +3265,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         os.remove(self.output_file)
                 except: pass
             if self.is_yt_dlp:
-                path = self.find_active_part_yt_dlp(self.FileName, self.download_folder)
+                path = addOn.find_active_part_yt_dlp(self.FileName, self.download_folder)
                 if path and os.path.exists(path):
                     os.remove(path)
             else:
@@ -3276,7 +3282,10 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         if os.path.exists(f):
                             try: os.remove(f)
                             except: pass
-            
+        
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM downloads WHERE id = ?", (self.download_id,))
+        self.conn.commit()
         self.reset_ui()
         dialog.destroy()
         self.exit()
@@ -3297,13 +3306,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
     
         self.update_download(status, self.progress, "--", "--", finished_downloading=has_finished)
     
-    def find_active_part_yt_dlp(self, filename, directory):
-        base_name = os.path.splitext(filename)[0]
-        for name in os.listdir(directory):
-            if name.startswith(base_name) and (name.endswith(".part") or name.endswith(".ytdl")):
-                return os.path.join(directory, name)
-        return None
-
     def is_network_error(self, error_str):
         error_str = error_str.lower()
         return any(msg in error_str for msg in [

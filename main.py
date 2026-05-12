@@ -603,10 +603,8 @@ class FlameGetManager(Gtk.Application):
                 os.kill(item.pid, signal.SIGTERM)
                 
             if self.is_yt_dlp(item.url):
-                ytdlp_leftovers = self.find_active_part_yt_dlp(item.filename, item.file_directory)
-
+                ytdlp_leftovers = addOn.find_active_part_yt_dlp(item.filename, item.file_directory)
                 downloaded_item_path = os.path.join(item.file_directory, item.filename)
-
                 if item.download_playlist:
                     playlist_dir = Gio.File.new_for_path(downloaded_item_path)
                     if self.is_safe_path(playlist_dir):
@@ -687,17 +685,6 @@ class FlameGetManager(Gtk.Application):
                 cmd.extend(["--quality", data["quality"]])
 
             subprocess.Popen(cmd, env=worker_env)
-
-    def find_active_part_yt_dlp(self, filename, directory):
-        clean_name = os.path.basename(filename)
-        stem = os.path.splitext(clean_name)[0]
-
-        for name in os.listdir(directory):
-            if name.endswith(".part"):
-                if name.startswith(stem + "."):
-                    return os.path.join(directory, name)
-                    
-        return None
 
     def create_toolbar(self):
         toolbar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -2980,47 +2967,46 @@ class FlameGetManager(Gtk.Application):
                                 playlist_dir.trash(None)
                             except:
                                 shutil.rmtree(playlist_dir.get_path())
-                        continue
-                    ytdlp_leftovers = self.find_active_part_yt_dlp(item.filename, item.file_directory)
-                    if ytdlp_leftovers and os.path.exists(ytdlp_leftovers):
-                        os.remove(ytdlp_leftovers)
-                        continue
-
-            f = Gio.File.new_for_path(os.path.join(item.file_directory, item.filename))
-            try:
-                f.trash(None)
-            except:
+                    else:
+                        ytdlp_leftovers = addOn.find_active_part_yt_dlp(item.filename, item.file_directory)
+                        if ytdlp_leftovers and os.path.exists(ytdlp_leftovers):
+                            os.remove(ytdlp_leftovers)
+                            
+                f = Gio.File.new_for_path(os.path.join(item.file_directory, item.filename))
                 try:
-                    os.remove(f.get_path())
-                except:
-                    pass
-                
-            base_path = f.get_path()
-            if item.url.startswith("magnet:?") or item.url.endswith(".torrent"):
-                gio_meta_path = Gio.File.new_for_path(os.path.join(item.file_directory, item.filename + ".meta.json"))
-                try:
-                    gio_meta_path.trash(None)
+                    f.trash(None)
                 except:
                     try:
-                        os.remove(gio_meta_path.get_path())
+                        os.remove(f.get_path())
                     except:
                         pass
+                    
+                base_path = f.get_path()
+                if item.url.startswith("magnet:?") or item.url.endswith(".torrent"):
+                    gio_meta_path = Gio.File.new_for_path(os.path.join(item.file_directory, item.filename + ".meta.json"))
+                    try:
+                        gio_meta_path.trash(None)
+                    except:
+                        try:
+                            os.remove(gio_meta_path.get_path())
+                        except:
+                            pass
 
-            if base_path:
-                for x in range(15):
-                    part_file = f"{base_path}-part{x}"
-                    try: 
-                        if os.path.exists(part_file):
-                            os.remove(part_file)
-                    except Exception as e:
-                        print(f"Warning: failed to remove {part_file}: {e}")
+                if base_path:
+                    for x in range(15):
+                        part_file = f"{base_path}-part{x}"
+                        try: 
+                            if os.path.exists(part_file):
+                                os.remove(part_file)
+                        except Exception as e:
+                            print(f"Warning: failed to remove {part_file}: {e}")
 
-            aria2_file = base_path + ".aria2"
-            try:
-                if os.path.exists(aria2_file):
-                    os.remove(aria2_file)
-            except Exception as e:
-                print(f"Warning: failed to remove {aria2_file}: {e}")
+                aria2_file = base_path + ".aria2"
+                try:
+                    if os.path.exists(aria2_file):
+                        os.remove(aria2_file)
+                except Exception as e:
+                    print(f"Warning: failed to remove {aria2_file}: {e}")
                 
         if i == 1:
             self.show_toast_popup(f"{self.tr("Deleted Selected File Successfully.")}", color="red_toast")
