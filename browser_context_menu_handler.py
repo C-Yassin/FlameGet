@@ -348,7 +348,7 @@ class VideoAnalyzer(Gtk.Application):
         row += 1
 
         def on_thumbs_toggle(btn):
-            if btn: self.include_subs = btn.get_active()
+            if btn: self.include_thumb = btn.get_active()
 
         chk_t_label = Gtk.Label(label=tr("Embed Thumbnail:"), xalign=0)
         grid.attach(chk_t_label, 0, row, 1, 1)
