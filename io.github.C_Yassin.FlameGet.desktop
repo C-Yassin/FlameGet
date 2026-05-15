@@ -8,5 +8,5 @@ Type=Application
 Categories=Network;FileTransfer;
 StartupNotify=true
 StartupWMClass=io.github.C_Yassin.FlameGet
-MimeType=x-scheme-handler/magnet;
+MimeType=x-scheme-handler/magnet;x-scheme-handler/flameget;
 Keywords=download;manager;internet;video;youtube;aria2;accelerator;gtk;
