@@ -11,7 +11,7 @@ import argparse
 import signal, shutil
 import json, tempfile
 import hashlib
-import SaveManager
+from SaveManager import load_css, load_settings, save_settings, tr
 import FireAddOns as addOn
 
 yt_dlp = addOn.lazy_import("yt_dlp")
@@ -24,7 +24,6 @@ else:
     TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
 
 WINDOWS_TRAY_PORT = 18598
-HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
 #for the stupid range detection     
 ARIA2_SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
 
@@ -120,7 +119,6 @@ from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider, PoTokenRespon
 @register_provider
 class FlameGetTokenProviderPTP(PoTokenProvider):  
     PROVIDER_NAME = 'flameget-internal'
-
     def is_available(self):
         return True
 
@@ -133,7 +131,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         super().__init__(application=app_manager)
 
         self.conn = addOn.FireFiles.db.conn
-        self.translations = SaveManager.load_translations()
         self.url = url
         self.runtime_dir = addOn.UNITS.RUNTIME_DIR
         # Use port in socket name to prevent collision if multiple windows open in the same process
@@ -211,16 +208,16 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.is_supporting_range = True
 
         if file_directory == "":
-            self.app_settings = SaveManager.load_settings()
+            self.app_settings = load_settings()
             saved_dir = self.app_settings.get("default_download_dir")
             if saved_dir and os.path.exists(saved_dir):
                 self.download_folder = saved_dir
         else:
             self.download_folder = file_directory
-            self.app_settings = SaveManager.load_settings(self.download_folder)
+            self.app_settings = load_settings(self.download_folder)
 
         self.output_file = os.path.join(self.download_folder, self.FileName)
-        SaveManager.load_css(self.app_settings.get("theme_mode"))
+        load_css(self.app_settings.get("theme_mode"))
         self.in_minimize_mode = in_minimize_mode or self.app_settings.get("start_in_minimize_mode", False) 
         self.auto_start = self.in_minimize_mode or self.app_settings.get("auto_start", False)
         self.download_engine = self.app_settings.get("engine").lower()
@@ -249,7 +246,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.entry_locked = True
         self.limit_speed = speed_limit
         self.lock_file = ""
-        self.download_button = Gtk.Button(label=self.tr("Download"))
+        self.download_button = Gtk.Button(label=tr("Download"))
         self.download_button.set_hexpand(True)
         self.download_button.add_css_class("green-btn")
         self.download_button.connect("clicked", self.on_download_clicked)
@@ -293,8 +290,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.download_view = self.build_download_view()
         self.settings_view = self.build_settings_view()
 
-        self.stack.add_titled(self.download_view, "info", self.tr("Info"))
-        self.stack.add_titled(self.settings_view, "settings", self.tr("Settings"))
+        self.stack.add_titled(self.download_view, "info", tr("Info"))
+        self.stack.add_titled(self.settings_view, "settings", tr("Settings"))
         main_box.add_css_class("main_buttons")
         main_box.append(self.stack)
 
@@ -538,27 +535,27 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.segment_size = self.file_size_bytes // self.segments_count
             
             if self.file_size_bytes == 0:
-                file_size_str = self.tr("UNKNOWN")
+                file_size_str = tr("UNKNOWN")
             else:
                 file_size_str = addOn.parse_size(file_size)
             
-            size_markup = f"{self.tr('File Size:')} <b>{addOn.parse_size(self.file_size_bytes)}</b>"
+            size_markup = f"{tr('File Size:')} <b>{addOn.parse_size(self.file_size_bytes)}</b>"
 
-            download_label = self.tr("Download")
+            download_label = tr("Download")
             
             if self.is_yt_dlp:
                 path = addOn.find_active_part_yt_dlp(self.FileName, self.download_folder)
                 if path and os.path.exists(path):
-                    download_label = self.tr("Resume")
+                    download_label = tr("Resume")
             else:
                 if self.download_engine == "aria2":
                     if os.path.exists(self.output_file) and os.path.exists(self.output_file + ".aria2"):
-                        download_label = self.tr("Resume")
+                        download_label = tr("Resume")
                         percent = (os.path.getsize(self.output_file) / self.file_size_bytes) * 100 if self.file_size_bytes > 0 else 0
                         self.progress = float(percent)
                 else:
                     if hasattr(self, 'part_files') and self.part_files and os.path.exists(self.part_files[0]):
-                        download_label = self.tr("Resume")
+                        download_label = tr("Resume")
 
             GLib.idle_add(self.on_fetch_complete, size_markup, file_size_str, download_label)
 
@@ -620,7 +617,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
                             capture_output=True, 
                             text=True, 
                             timeout=60, 
-                            check=True
+                            check=True,
+                            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {})
                         )
 
                         match = re.search(r"Saved metadata as (.*\.torrent)", download_proc.stdout)
@@ -779,7 +777,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         except Exception as e:
             print(f"Metadata Fetch Error: {e}")
-            GLib.idle_add(self.status_label.set_text, self.tr("Failed to retrieve torrent info."))
+            GLib.idle_add(self.status_label.set_text, tr("Failed to retrieve torrent info."))
         finally:
             self.has_fetching_metadata = False
 
@@ -805,7 +803,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             walk_stats(self.root_node_store)
         
         if hasattr(self, 'header_count_lbl'):
-            self.header_count_lbl.set_label(f"{selected_files}/{total_files} {self.tr('Selected')}")
+            self.header_count_lbl.set_label(f"{selected_files}/{total_files} {tr('Selected')}")
         
         if hasattr(self, 'master_check'):
             self.master_check.blocking = True
@@ -823,7 +821,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.master_check.blocking = False
 
         self.file_size_bytes = total_bytes
-        size_markup = f"{self.tr('File Size:')} <b>{addOn.parse_size(self.file_size_bytes)}</b>"
+        size_markup = f"{tr('File Size:')} <b>{addOn.parse_size(self.file_size_bytes)}</b>"
         if hasattr(self, 'size_label'):
             self.size_label.set_markup(size_markup)
 
@@ -836,7 +834,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         header_row.set_margin_top(5)
         header_row.set_margin_start(16)
         self.master_check = Gtk.CheckButton()
-        self.master_check.set_tooltip_text(self.tr("Select All"))
+        self.master_check.set_tooltip_text(tr("Select All"))
         self.master_check.blocking = False
         
         def on_master(btn):
@@ -957,8 +955,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
         
         self.update_counter()
         self.editFileName_entry.set_text(self.FileName)
-        size_markup = f"{self.tr('File Size:')} <b>{addOn.parse_size(self.file_size_bytes)}</b>"
-        GLib.idle_add(self.on_fetch_complete, size_markup, self.file_size_str, self.tr("Download"))
+        size_markup = f"{tr('File Size:')} <b>{addOn.parse_size(self.file_size_bytes)}</b>"
+        GLib.idle_add(self.on_fetch_complete, size_markup, self.file_size_str, tr("Download"))
         
     def torrent_parse_size(self, size_str):
         if not size_str:
@@ -1015,7 +1013,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.download_button.set_sensitive(False)
         GLib.idle_add(self.download_button.remove_css_class, "green-btn")
         GLib.idle_add(self.download_button.add_css_class, "generic-button")
-        self.download_button.set_label(self.tr("Fetching Data..."))
+        self.download_button.set_label(tr("Fetching Data..."))
         return False
 
     def on_torrent_chk_toggled(self, checkbox):
@@ -1037,7 +1035,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.file_size_bytes = new_total_bytes
         self.torrent_indices = ",".join(selected_indices)
         
-        self.size_label.set_markup(f"{self.tr("File Size:")} <b>{addOn.parse_size(new_total_bytes)}</b>")
+        self.size_label.set_markup(f"{tr("File Size:")} <b>{addOn.parse_size(new_total_bytes)}</b>")
         
         if self.segments_count > 0:
             self.segment_size = self.file_size_bytes // self.segments_count
@@ -1087,7 +1085,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             Gtk.Widget.set_default_direction(Gtk.TextDirection.LTR)
             
         mode = self.app_settings.get("theme_mode", "Dark")
-        SaveManager.load_css(mode)
+        load_css(mode)
 
         display = Gdk.Display.get_default()
 
@@ -1149,16 +1147,16 @@ class DownloadWindow(Gtk.ApplicationWindow):
         
         row = 0
 
-        limit_label = Gtk.Label(label=self.tr("Speed Limit:"))
+        limit_label = Gtk.Label(label=tr("Speed Limit:"))
         limit_label.add_css_class("small-text")
         limit_label.set_halign(Gtk.Align.START)
         
         self.speed_limit_entry = Gtk.Entry()
         self.speed_limit_entry.add_css_class("small-text")
-        self.speed_limit_entry.set_placeholder_text(self.tr("Speed Limit"))
+        self.speed_limit_entry.set_placeholder_text(tr("Speed Limit"))
         self.speed_limit_entry.add_css_class("entry")
         self.speed_limit_entry.set_text(str(int(self.limit_speed)) if self.limit_speed else "0")
-        self.speed_limit_entry.set_tooltip_text(self.tr("Enter speed limit in K, e.g., 400 for 400 K"))
+        self.speed_limit_entry.set_tooltip_text(tr("Enter speed limit in K, e.g., 400 for 400 K"))
         self.speed_limit_entry.connect("changed", self.set_entry_text)
         self.speed_limit_entry.set_hexpand(True)
 
@@ -1166,7 +1164,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         grid.attach(self.speed_limit_entry, 1, row, 1, 1)
         row += 1
 
-        connections_label = Gtk.Label(label=self.tr("Connections:"))
+        connections_label = Gtk.Label(label=tr("Connections:"))
         connections_label.set_halign(Gtk.Align.START)
 
         adjustment = Gtk.Adjustment.new(7, 1, 10, 1, 0, 0)
@@ -1175,7 +1173,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.connections_spin.set_numeric(True)
         self.connections_spin.set_value(self.segments_count)
         self.connections_spin.set_hexpand(True)
-        self.connections_spin.set_tooltip_text(self.tr("Enter the maximum number of connections for downloading"))
+        self.connections_spin.set_tooltip_text(tr("Enter the maximum number of connections for downloading"))
         self.connections_spin.add_css_class("entry")
         self.connections_spin.connect("value-changed", self.on_connections_changed)
 
@@ -1184,7 +1182,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         row += 1
 
         if self.is_torrent:
-            ratio_label = Gtk.Label(label=self.tr("Seed Ratio:"))
+            ratio_label = Gtk.Label(label=tr("Seed Ratio:"))
             ratio_label.add_css_class("small-text")
             ratio_label.set_halign(Gtk.Align.START)
             
@@ -1193,13 +1191,13 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.seed_ratio_entry.add_css_class("entry")
             self.seed_ratio_entry.set_text(self.app_settings.get("seed_ratio", "1.0"))
             self.seed_ratio_entry.set_hexpand(True)
-            self.seed_ratio_entry.connect("changed", lambda e: self.app_settings.update({"seed_ratio": e.get_text()}) or SaveManager.save_settings(self.app_settings))
+            self.seed_ratio_entry.connect("changed", lambda e: self.app_settings.update({"seed_ratio": e.get_text()}) or save_settings(self.app_settings))
 
             grid.attach(ratio_label, 0, row, 1, 1)
             grid.attach(self.seed_ratio_entry, 1, row, 1, 1)
             row += 1
 
-            time_label = Gtk.Label(label=self.tr("Seed Time (min):"))
+            time_label = Gtk.Label(label=tr("Seed Time (min):"))
             time_label.add_css_class("small-text")
             time_label.set_halign(Gtk.Align.START)
             
@@ -1208,7 +1206,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.seed_time_entry.add_css_class("entry")
             self.seed_time_entry.set_text(self.app_settings.get("seed_time", "0"))
             self.seed_time_entry.set_hexpand(True)
-            self.seed_time_entry.connect("changed", lambda e: self.app_settings.update({"seed_time": e.get_text()}) or SaveManager.save_settings(self.app_settings))
+            self.seed_time_entry.connect("changed", lambda e: self.app_settings.update({"seed_time": e.get_text()}) or save_settings(self.app_settings))
 
             grid.attach(time_label, 0, row, 1, 1)
             grid.attach(self.seed_time_entry, 1, row, 1, 1)
@@ -1217,7 +1215,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         box.append(grid)
 
         if not self.is_torrent:
-            checksum_label = Gtk.Label(label=self.tr("Verify SHA256 Checksum:"))
+            checksum_label = Gtk.Label(label=tr("Verify SHA256 Checksum:"))
             checksum_label.add_css_class("heading")
             checksum_label.set_halign(Gtk.Align.START)
             box.append(checksum_label)
@@ -1228,14 +1226,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.checksum_entry.add_css_class("small-text")
             box.append(self.checksum_entry)
 
-        finish_label = Gtk.Label(label=self.tr("On Completion:"))
+        finish_label = Gtk.Label(label=tr("On Completion:"))
         finish_label.add_css_class("heading")
         finish_label.set_halign(Gtk.Align.START)
         box.append(finish_label)
 
         self.finish_options = ["Use Global Setting", "Do Nothing", "Shutdown System", "Restart System", "Suspend System", "Run Custom Command"]
         
-        self.dd_finish = Gtk.DropDown.new_from_strings([self.tr(opt) for opt in self.finish_options])
+        self.dd_finish = Gtk.DropDown.new_from_strings([tr(opt) for opt in self.finish_options])
         self.dd_finish.set_hexpand(True)
         
         self.local_finish_action = "Use Global Setting" 
@@ -1251,7 +1249,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.local_cmd_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         self.local_cmd_box.set_visible(False)
         
-        cmd_lbl = Gtk.Label(label=self.tr("Custom Command (this download only):"), xalign=0)
+        cmd_lbl = Gtk.Label(label=tr("Custom Command (this download only):"), xalign=0)
         self.local_cmd_entry = Gtk.Entry()
         self.local_cmd_entry.set_placeholder_text("notify-send 'Done'")
         self.local_cmd_entry.add_css_class("entry")
@@ -1354,8 +1352,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def build_download_view(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10, margin_bottom=10, margin_start=20, margin_end=20)
         box.set_size_request(-1, -1)
-        self.info_label = Gtk.Label(label=self.tr("Download Menu"))
-        self.info_label.set_markup(f"<big><b>{self.tr('Download Menu')}</b></big>")
+        self.info_label = Gtk.Label(label=tr("Download Menu"))
+        self.info_label.set_markup(f"<big><b>{tr('Download Menu')}</b></big>")
         self.info_label.set_halign(Gtk.Align.CENTER)
         box.append(self.info_label)
 
@@ -1367,7 +1365,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         row = 0
 
         if self.is_torrent:
-            label = Gtk.Label(label=self.tr("Files:"))
+            label = Gtk.Label(label=tr("Files:"))
             label.set_halign(Gtk.Align.START)
             label.set_valign(Gtk.Align.START)
             grid.attach(label, 0, row, 1, 1)
@@ -1382,12 +1380,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.torrent_files_ui_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
             scrolled.set_child(self.torrent_files_ui_box)
             
-            self.loading_lbl = Gtk.Label(label=self.tr("Retrieving file list..."))
+            self.loading_lbl = Gtk.Label(label=tr("Retrieving file list..."))
             self.torrent_files_ui_box.append(self.loading_lbl)
 
             grid.attach(scrolled, 1, row, 1, 1)
             
-            label = Gtk.Label(label=self.tr("File Name:"))
+            label = Gtk.Label(label=tr("File Name:"))
             label.add_css_class("small-text")
             label.set_halign(Gtk.Align.START)
             grid.attach(label, 0, row+1, 1, 1)
@@ -1404,7 +1402,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             grid.attach(self.editFileName_entry, 1, row+1, 1, 1)
 
         else:
-            label = Gtk.Label(label=self.tr("File Name:"))
+            label = Gtk.Label(label=tr("File Name:"))
             label.add_css_class("small-text")
             label.set_halign(Gtk.Align.START)
             grid.attach(label, 0, row, 1, 1)
@@ -1421,7 +1419,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         row += 2
 
-        label = Gtk.Label(label=self.tr("Saving to:"))
+        label = Gtk.Label(label=tr("Saving to:"))
         label.add_css_class("small-text")
         label.set_halign(Gtk.Align.START)
         folder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -1434,7 +1432,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         folder_box.append(self.folder_entry)
 
-        url_label = Gtk.Label(label=self.tr("File URL:"))
+        url_label = Gtk.Label(label=tr("File URL:"))
         url_label.add_css_class("small-text")
         url_label.set_halign(Gtk.Align.START)
 
@@ -1469,7 +1467,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         save_box.set_halign(Gtk.Align.CENTER)
         self.size_label = Gtk.Label()
         self.size_label.add_css_class("small-text")
-        self.size_label.set_markup(f"{self.tr('File Size:')} <b>{self.file_size_str}</b>")
+        self.size_label.set_markup(f"{tr('File Size:')} <b>{self.file_size_str}</b>")
         
         self.size_label.set_hexpand(True)
 
@@ -1481,7 +1479,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         box.append(save_box)
 
-        self.select_folder_button = Gtk.Button(label=self.tr("Choose Download Folder"))
+        self.select_folder_button = Gtk.Button(label=tr("Choose Download Folder"))
         self.select_folder_button.add_css_class("generic-button")
         self.select_folder_button.connect("clicked", self.on_select_folder_clicked)
         box.append(self.select_folder_button)
@@ -1516,7 +1514,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.est_time_label.set_ellipsize(Pango.EllipsizeMode.END)
 
         self.est_time_label.set_lines(1) 
-        self.est_time_label.set_markup(f"{self.tr('Downloaded:')} <b>--:--/--:--</b> | Speed: <b>--:--</b> | ETA: <b>--:--</b>")
+        self.est_time_label.set_markup(f"{tr('Downloaded:')} <b>--:--/--:--</b> | Speed: <b>--:--</b> | ETA: <b>--:--</b>")
         self.est_time_label.set_visible(False)
         box.append(self.est_time_label)
         self.progress_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -1541,19 +1539,19 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         button_box = Gtk.Box(spacing=10)
         
-        self.pause_button = Gtk.Button(label=self.tr("Pause"))
+        self.pause_button = Gtk.Button(label=tr("Pause"))
         self.pause_button.add_css_class("generic-button")
         self.pause_button.set_visible(False)
         self.pause_button.set_hexpand(True)
         self.pause_handler_id = self.pause_button.connect("clicked", self.on_pause_clicked)
 
-        self.cancel_button = Gtk.Button(label=self.tr("Cancel"))
+        self.cancel_button = Gtk.Button(label=tr("Cancel"))
         self.cancel_button.add_css_class("btn_cancel")
         self.cancel_button.set_hexpand(True)
         self.cancel_button.set_visible(False)
         self.cancel_button.connect("clicked", lambda *args : GLib.idle_add(self.confirm_cancelation))
 
-        self.openFile_button = Gtk.Button(label=self.tr("Open File"))
+        self.openFile_button = Gtk.Button(label=tr("Open File"))
         self.openFile_button.add_css_class("green-btn")
         self.openFile_button.set_hexpand(True)
         self.openFile_button.set_visible(False)
@@ -1589,52 +1587,57 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def on_filename_changed(self, entry):
         raw_input = entry.get_text().strip()
         
+        # 1. Reset UI state
         entry.remove_css_class("error")
         self.status_label.set_text("")
+        self.status_label.set_name("")
         
         if not raw_input:
-            self.status_label.set_text(self.tr("Filename cannot be empty."))
-            self.status_label.set_name("red-text")
-            self.canDownload = False
-            GLib.idle_add(self.download_button.set_sensitive, False)
+            self._set_error_state(entry, tr("Filename cannot be empty."))
+            return
+
+        base_name = raw_input
+        if hasattr(self, 'original_ext') and self.original_ext:
+            if base_name.lower().endswith(self.original_ext.lower()):
+                base_name = base_name[:-len(self.original_ext)]
+
+        if not base_name.strip():
+            self._set_error_state(entry, tr("Filename cannot be empty."))
             return
 
         illegal_pattern = r'[<>:"/\\|?*\x00-\x1F]'
-        if re.search(illegal_pattern, raw_input):
-            entry.add_css_class("error")
-            self.status_label.set_text(self.tr("Filename contains invalid characters (e.g., \\ / : * ? \" < > |)."))
-            self.status_label.set_name("red-text")
-            entry.set_tooltip_text(self.tr("Please remove forbidden characters."))
-            GLib.idle_add(self.download_button.set_sensitive, False)
-            self.canDownload = False
+        if re.search(illegal_pattern, base_name):
+            self._set_error_state(
+                entry, 
+                tr("Filename contains invalid characters (e.g., \\ / : * ? \" < > |).")
+            )
+            entry.set_tooltip_text(tr("Please remove forbidden characters."))
             return
             
-        if raw_input.endswith('.') or raw_input.endswith(' '):
-            entry.add_css_class("error")
-            self.status_label.set_text(self.tr("Filename cannot end with a space or period."))
-            self.status_label.set_name("red-text")
-            GLib.idle_add(self.download_button.set_sensitive, False)
-            self.canDownload = False
+        if base_name.endswith('.') or base_name.endswith(' '):
+            self._set_error_state(
+                entry, 
+                tr("Filename cannot end with a space or period.")
+            )
             return
 
-        _base, _ = os.path.splitext(raw_input)
-        if not _base:
-            self.status_label.set_text(self.tr("Filename cannot be empty."))
-            self.status_label.set_name("red-text")
-            GLib.idle_add(self.download_button.set_sensitive, False)
-            self.canDownload = False
-            return
-
-        entry.set_tooltip_text(self.tr("Valid filename."))
+        entry.set_tooltip_text(tr("Valid filename."))
         self.status_label.set_name("")
         GLib.idle_add(self.download_button.set_sensitive, True)
         self.canDownload = True
         
-        self.FileName = _base + self.original_ext
+        self.FileName = base_name + self.original_ext
         safe_filename = os.path.basename(self.FileName)
         self.output_file = os.path.join(self.download_folder, safe_filename)
         self.part_files = [self.output_file + f"-part{i}" for i in range(self.segments_count)]
         print("SECURE OUTPUT:", self.output_file)
+
+    def _set_error_state(self, entry, message):
+        entry.add_css_class("error")
+        self.status_label.set_text(message)
+        self.status_label.set_name("red-text")
+        self.canDownload = False
+        GLib.idle_add(self.download_button.set_sensitive, False)
 
     def on_folder_entry_changed(self, entry):
         path = entry.get_text().strip()
@@ -1650,13 +1653,13 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 self.canDownload = True
                 GLib.idle_add(self.download_button.set_sensitive, True)
             elif os.path.isdir(os.path.dirname(full_path)):
-                entry.set_tooltip_text(self.tr("Directory does not exist. It will be created."))
+                entry.set_tooltip_text(tr("Directory does not exist. It will be created."))
                 self.download_folder = full_path
                 self.canDownload = True
                 GLib.idle_add(self.download_button.set_sensitive, True)
             else:
                 entry.add_css_class("error")
-                self.status_label.set_text(self.tr("Invalid path or parent directory missing."))
+                self.status_label.set_text(tr("Invalid path or parent directory missing."))
                 self.status_label.set_name("red-text")
                 self.canDownload = False
                 self.download_button.set_sensitive(False)
@@ -1665,11 +1668,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
             entry.add_css_class("error")
             self.canDownload = False
             self.download_button.set_sensitive(False)
-            entry.set_tooltip_text(f"{self.tr('Invalid path')}: {str(e)}")
+            entry.set_tooltip_text(f"{tr('Invalid path')}: {str(e)}")
 
     def on_select_folder_clicked(self, button):
         dialog = Gtk.FileDialog()
-        dialog.set_title(self.tr("Select Download Folder"))
+        dialog.set_title(tr("Select Download Folder"))
         dialog.set_modal(True)
 
         def on_done(source, result, data=None):
@@ -1690,7 +1693,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             return
 
         if not self.canDownload:
-            self.status_label.set_text(self.tr("Fix filename before downloading."))
+            self.status_label.set_text(tr("Fix filename before downloading."))
             return
         self.folder_entry.remove_css_class("error")
         self.folder_entry.remove_css_class("success")
@@ -1719,7 +1722,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 print(f"User reselected indices: {self.torrent_indices}")
                 self.manage_torrent_metadata("save")
             else:
-                self.status_label.set_text(self.tr("Please select at least one file."))
+                self.status_label.set_text(tr("Please select at least one file."))
                 return
         try:
             cursor = self.conn.cursor()
@@ -1740,14 +1743,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 open(self.lock_file, 'w').close()
             else:
                 # wtf! how did you even get here!
-                self.status_label.set_label(self.tr("File is Already Downloading!"))
+                self.status_label.set_label(tr("File is Already Downloading!"))
                 self.status_label.set_name("red-text")
                 return
             
             self.download_started = True
             self.status_label.set_name("")
             self.is_canceled = False
-            self.status_label.set_text(self.tr("Downloading Video..."))
+            self.status_label.set_text(tr("Downloading Video..."))
             self.editFileName_entry.set_sensitive(False)
             self.folder_entry.set_sensitive(False)
             self.download_button.set_visible(False)
@@ -1768,12 +1771,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if not self.is_torrent:
             if self.download_engine == "aria2":
                 if os.path.exists(self.lock_file) or (os.path.exists(self.output_file) and os.path.getsize(self.output_file) >= self.file_size_bytes):
-                    self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{self.tr("File already exists.")}</span></b>')
+                    self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{tr("File already exists.")}</span></b>')
                     self.on_shake(self.editFileName_entry)
                     return
             else:
                 if os.path.exists(self.lock_file) or os.path.exists(self.output_file):
-                    self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{self.tr("File already exists.")}</span></b>')
+                    self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{tr("File already exists.")}</span></b>')
                     self.on_shake(self.editFileName_entry)
                     return
 
@@ -1786,7 +1789,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.segment_size = self.file_size_bytes // self.segments_count
         self.download_started = True
         self.is_canceled = False
-        self.status_label.set_text(self.tr("Downloading..."))
+        self.status_label.set_text(tr("Downloading..."))
         self.editFileName_entry.set_sensitive(False)
         self.folder_entry.set_sensitive(False)
         self.download_button.set_visible(False)
@@ -1842,7 +1845,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
     def download_single_thread(self):        
         self.connections_spin.set_sensitive(False)
-        self.status_label.set_text(self.tr("Downloading..."))
+        self.status_label.set_text(tr("Downloading..."))
         self.start_pulsing()
 
         c = pycurl.Curl()
@@ -1895,7 +1898,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 print(f"PycURL Error {err_code}: {err_msg}")
                 if "resolve" in str(err_msg).lower() or "timeout" in str(err_msg).lower() or "connect" in str(err_msg).lower():
                     GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-                    GLib.idle_add(self.download_button.set_label, self.tr("No internet connection. Please reconnect"))
+                    GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
                 
                 GLib.idle_add(self.reset_ui)
                 if os.path.exists(self.lock_file):
@@ -1913,7 +1916,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if not self.is_connected():
             self.reset_ui()
             GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-            GLib.idle_add(self.download_button.set_label, self.tr("No internet connection. Please reconnect"))
+            GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
             print("No internet connection. Please reconnect")
             if os.path.exists(self.lock_file):
                 os.remove(self.lock_file)
@@ -1993,7 +1996,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.rpc_secret = os.urandom(16).hex()
         
         if self.is_torrent:
-            self.status_label.set_text(self.tr("Checking Integrity..."))
+            self.status_label.set_text(tr("Checking Integrity..."))
             GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
             self.progress_bars[0].add_css_class("dashed-bar")
             cmd = [
@@ -2094,7 +2097,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             if self.aria_proc:
                 self.aria_proc.terminate()
             GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-            GLib.idle_add(self.status_label.set_text, f"{self.tr('Connection Error')}(RPC)")
+            GLib.idle_add(self.status_label.set_text, f"{tr('Connection Error')}(RPC)")
             GLib.idle_add(self.reset_ui)
             return
 
@@ -2127,9 +2130,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     GLib.idle_add(
                         self.est_time_label.set_markup,
                         f"<span font_features='tnum=1'>"
-                        f"{self.tr('Downloaded:')} <b>{addOn.parse_size(current_size)}/{addOn.parse_size(total_size)}</b> | "
-                        f"{self.tr('Progress:')} <b>{start_progress}%</b> | "
-                        f"{self.tr('Speed:')} <b>--</b> | "
+                        f"{tr('Downloaded:')} <b>{addOn.parse_size(current_size)}/{addOn.parse_size(total_size)}</b> | "
+                        f"{tr('Progress:')} <b>{start_progress}%</b> | "
+                        f"{tr('Speed:')} <b>--</b> | "
                         f"ETA: <b>{self.eta_str}</b>"
                         f"</span>"
                     )
@@ -2145,7 +2148,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             if self.aria_proc:
                 self.aria_proc.terminate()
                 GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-            GLib.idle_add(self.status_label.set_text, self.tr("Error adding download"))
+            GLib.idle_add(self.status_label.set_text, tr("Error adding download"))
             GLib.idle_add(self.reset_ui)
     
     def monitor_aria_rpc(self):
@@ -2175,7 +2178,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.animation_source_id = None
             GLib.idle_add(pb.set_fraction, self.current_fraction)
 
-            GLib.idle_add(self.cancel_button.set_label, self.tr("Cancel"))
+            GLib.idle_add(self.cancel_button.set_label, tr("Cancel"))
 
             while True:
                 while not self.pause_event.is_set():
@@ -2256,27 +2259,27 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
                     uploaded_str = addOn.parse_size(uploaded)
 
-                    GLib.idle_add(self.status_label.set_markup, f"<b><span foreground='#00ACC1'>{self.tr('Seeding')}...</span></b> ({self.tr('Ratio')}: {ratio:.2f})")
+                    GLib.idle_add(self.status_label.set_markup, f"<b><span foreground='#00ACC1'>{tr('Seeding')}...</span></b> ({tr('Ratio')}: {ratio:.2f})")
                     GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
                     self.progress_bars[0].add_css_class("dashed-bar")
                     
                     markup_text = (
-                        f"{self.tr('Seeding')} | "
-                        f"{self.tr('Up Speed')}: <b>{up_speed_str}</b> | "
-                        f"{self.tr('Uploaded')}: <b>{uploaded_str}</b> | "
-                        f"{self.tr('Peers:')} <b>{peers}</b> | {self.tr('Seeds:')} <b>{seeders}</b>"
+                        f"{tr('Seeding')} | "
+                        f"{tr('Up Speed')}: <b>{up_speed_str}</b> | "
+                        f"{tr('Uploaded')}: <b>{uploaded_str}</b> | "
+                        f"{tr('Peers:')} <b>{peers}</b> | {tr('Seeds:')} <b>{seeders}</b>"
                     )
                     GLib.idle_add(self.est_time_label.set_markup, markup_text)
-                    if self.pause_button.get_label() != self.tr("Start Seeding"):
+                    if self.pause_button.get_label() != tr("Start Seeding"):
                         self.update_download("Seeding", "--", "--", "--", finished_downloading=True)
                     
-                    if self.pause_button.get_label() != self.tr("Stop Seeding"):
+                    if self.pause_button.get_label() != tr("Stop Seeding"):
                         if self.pause_handler_id and self.pause_button.handler_is_connected(self.pause_handler_id):
                             self.pause_button.disconnect(self.pause_handler_id)
                             self.pause_handler_id = None
                         self.download_started = False
                         self.pause_button.connect("clicked", self.on_stop_seeding_clicked)
-                        GLib.idle_add(self.pause_button.set_label, self.tr("Stop Seeding"))
+                        GLib.idle_add(self.pause_button.set_label, tr("Stop Seeding"))
                         GLib.idle_add(self.download_button.set_visible, False)
                         GLib.idle_add(self.cancel_button.set_visible, False)
                         GLib.idle_add(self.openFile_button.set_visible, True)
@@ -2301,11 +2304,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
                     if status == "error":
                         print(f"Aria2 Error: {self.current_download.error_message}")
-                        GLib.idle_add(self.status_label.set_text, self.tr("Error Occurred"))
+                        GLib.idle_add(self.status_label.set_text, tr("Error Occurred"))
                         def set_error_ui():
                             self.reset_ui()
                             GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-                            self.download_button.set_label(self.tr("Retry"))
+                            self.download_button.set_label(tr("Retry"))
                         GLib.idle_add(set_error_ui)
                         return
                     if status == "active" and (self.is_supporting_range or self.is_torrent):
@@ -2318,18 +2321,18 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         is_verifying = False
                         if curr_conns == 0 and curr_speed == 0:
                             if ver_len > 0:
-                                status_text = self.tr("Waiting to Verify...")
+                                status_text = tr("Waiting to Verify...")
                             else:
                                 if self.progress == 0:
-                                    status_text = self.tr("Searching for Peers...")
+                                    status_text = tr("Searching for Peers...")
                                 else:
-                                    status_text = self.tr("Stalled / No Peers")
+                                    status_text = tr("Stalled / No Peers")
                             is_verifying = True
                             self.update_download("Verifying Checksum", "--", "--", "--")
                             GLib.idle_add(self.progress_bars[0].add_css_class, "dashed-bar")
                             GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
                         else:
-                            status_text = self.tr("Downloading...")
+                            status_text = tr("Downloading...")
                             self.progress_bars[0].remove_css_class("dashed-bar")
                             is_verifying = False
 
@@ -2370,23 +2373,23 @@ class DownloadWindow(Gtk.ApplicationWindow):
                             GLib.idle_add(
                                 self.est_time_label.set_markup,
                                 f"<span font_features='tnum=1'>"
-                                f"{self.tr('Downloaded:')} <b>{UI_size_str}/{self.UI_total_size}</b> | "
-                                f"{self.tr('Progress:')} <b>{self.progress:.0f}%</b> | "
-                                f"{self.tr('Speed:')} <b>{UI_speed}</b> | "
+                                f"{tr('Downloaded:')} <b>{UI_size_str}/{self.UI_total_size}</b> | "
+                                f"{tr('Progress:')} <b>{self.progress:.0f}%</b> | "
+                                f"{tr('Speed:')} <b>{UI_speed}</b> | "
                                 f"ETA: <b>{self.eta_str}</b>"
                                 f"</span>"
                             )
                         else:
                             ver_percent = (ver_len / total_len) * 100
                             self.update_download("Verifying Checksum", "--", "--", "--")
-                            GLib.idle_add(self.est_time_label.set_markup, f"{self.tr('Verifying Checksum')} <b><span font_features='tnum=1'>{ver_percent:.1f}%</span></b>")
+                            GLib.idle_add(self.est_time_label.set_markup, f"{tr('Verifying Checksum')} <b><span font_features='tnum=1'>{ver_percent:.1f}%</span></b>")
                     else:
                         UI_size_str = self.size_str
                         UI_speed = self.speed_str
                         UI_size_str, UI_speed = self.get_parsed_UI()
                         GLib.idle_add(
                             self.est_time_label.set_markup,
-                            f"{self.tr('Downloaded:')} <b><span font_features='tnum=1'>{UI_size_str}</span></b>| {self.tr('Speed:')} <b><span font_features='tnum=1'>{UI_speed}</span></b> | ETA: <b>--:--</b>"
+                            f"{tr('Downloaded:')} <b><span font_features='tnum=1'>{UI_size_str}</span></b>| {tr('Speed:')} <b><span font_features='tnum=1'>{UI_speed}</span></b> | ETA: <b>--:--</b>"
                         )
                 time.sleep(0.1)
 
@@ -2491,7 +2494,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     print(f"PycURL Error {err_code}: {err_msg}")
                     if "resolve" in str(err_msg).lower() or "timeout" in str(err_msg).lower() or "connect" in str(err_msg).lower():
                         GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-                        GLib.idle_add(self.download_button.set_label, self.tr("No internet connection. Please reconnect"))
+                        GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
                     
                     GLib.idle_add(self.reset_ui)
                     if os.path.exists(self.lock_file):
@@ -2564,9 +2567,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     GLib.idle_add(self.progress_bars[0].remove_css_class, "dashed-bar")
                 
                     if self.download_playlist:
-                        GLib.idle_add(self.status_label.set_text, self.tr("Downloading Playlist..."))
+                        GLib.idle_add(self.status_label.set_text, tr("Downloading Playlist..."))
                     else:
-                        GLib.idle_add(self.status_label.set_text, self.tr("Downloading Video..."))
+                        GLib.idle_add(self.status_label.set_text, tr("Downloading Video..."))
 
                     total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
                     downloaded = d.get('downloaded_bytes', 0)
@@ -2594,21 +2597,21 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     if self.download_playlist and 'info_dict' in d:
                         idx = d.get('info_dict', {}).get('playlist_index', '?')
                         count = d.get('info_dict', {}).get('n_entries', '?')
-                        playlist_info = f"<b>{self.tr('Item')} {idx}/{count}</b> | "
+                        playlist_info = f"<b>{tr('Item')} {idx}/{count}</b> | "
 
                     total_str = addOn.parse_size(total)
                     down_str = addOn.parse_size(downloaded)
 
                     GLib.idle_add(
                         self.est_time_label.set_markup,
-                        f"{playlist_info}{self.tr('Downloaded')}: <span font_features='tnum=1'><b>{down_str}/{total_str}</b> ({percent:.1f}%)</span> | "
-                        f"{self.tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
+                        f"{playlist_info}{tr('Downloaded')}: <span font_features='tnum=1'><b>{down_str}/{total_str}</b> ({percent:.1f}%)</span> | "
+                        f"{tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
                         f"ETA: <span font_features='tnum=1'><b>{self.eta_str}</b></span>"
                     )
 
             elif d['status'] == 'finished':
                 GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
-                GLib.idle_add(self.status_label.set_text, self.tr("Converting / Merging..."))
+                GLib.idle_add(self.status_label.set_text, tr("Converting / Merging..."))
                 GLib.idle_add(self.est_time_label.set_text, "")
         
         rate_limit_bytes = (self.limit_speed * 1024) if self.limit_speed > 0 else None
@@ -2711,7 +2714,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 print("Download Cancelled")
             else:
                 print(f"YTDLP Error: {e}")
-                GLib.idle_add(self.status_label.set_text, self.tr("Error during YouTube download"))
+                GLib.idle_add(self.status_label.set_text, tr("Error during YouTube download"))
         except Exception as e:
             print(f"Critical Error: {e}")
         
@@ -2739,7 +2742,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if not target_hash:
             return
 
-        GLib.idle_add(self.status_label.set_text, self.tr("Verifying Checksum..."))
+        GLib.idle_add(self.status_label.set_text, tr("Verifying Checksum..."))
         
         t = threading.Thread(target=self._run_sha256_calc, args=(target_hash,))
         t.start()
@@ -2748,7 +2751,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         file_path = os.path.join(self.download_folder, self.FileName)
         
         if not os.path.exists(file_path):
-            GLib.idle_add(self.status_label.set_markup, f"<span foreground='red'>{self.tr('File not found for verification')}</span>")
+            GLib.idle_add(self.status_label.set_markup, f"<span foreground='red'>{tr('File not found for verification')}</span>")
             return
 
         sha256_hash = hashlib.sha256()
@@ -2760,16 +2763,16 @@ class DownloadWindow(Gtk.ApplicationWindow):
             calculated_hash = sha256_hash.hexdigest()
             
             if calculated_hash == target_hash:
-                GLib.idle_add(self.status_label.set_markup, f"<b>{self.tr('Checksum Verified')}</b>")
+                GLib.idle_add(self.status_label.set_markup, f"<b>{tr('Checksum Verified')}</b>")
                 GLib.idle_add(self.status_label.set_name, "green-text")
             else:
                 print(f"Hash Mismatch! Expected: {target_hash}, Got: {calculated_hash}")
-                GLib.idle_add(self.status_label.set_markup, f"<b>{self.tr('Checksum Mismatch')}</b>")
+                GLib.idle_add(self.status_label.set_markup, f"<b>{tr('Checksum Mismatch')}</b>")
                 GLib.idle_add(self.status_label.set_name, "red-text")
                 
         except Exception as e:
             print(f"Checksum error: {e}")
-            GLib.idle_add(self.status_label.set_text, self.tr("Error during verification"))
+            GLib.idle_add(self.status_label.set_text, tr("Error during verification"))
 
     def normalize_youtube_url(self, url):
         try:
@@ -2784,7 +2787,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def handle_disconnect(self):
         self.reset_ui()
         GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-        GLib.idle_add(self.download_button.set_label, self.tr("No internet connection. Please reconnect"))
+        GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
         print("No internet connection. Please reconnect")
 
     def on_segment_finished(self):
@@ -2842,10 +2845,10 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         except Exception as e:
             print(f"Merge Error: {e}")
-            GLib.idle_add(self.status_label.set_text, f"{self.tr('Merge Error:')} {e}")
+            GLib.idle_add(self.status_label.set_text, f"{tr('Merge Error:')} {e}")
             GLib.idle_add(self.status_label.set_name, "red-text")
             GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-            GLib.idle_add(self.download_button.set_label, self.tr("Failed - Check Log"))
+            GLib.idle_add(self.download_button.set_label, tr("Failed - Check Log"))
 
     def merge_segments(self):
         self.is_paused = True
@@ -2854,13 +2857,13 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.cancel_button.set_visible(False)
         self.progress_box.set_visible(False)
         self.est_time_label.set_visible(False)
-        self.status_label.set_text(self.tr("Finishing up..."))
+        self.status_label.set_text(tr("Finishing up..."))
         merge_thread = threading.Thread(target=self.start_merge_thread)
         merge_thread.start()
 
     def on_download_finished(self):
         self.is_completed = True
-        GLib.idle_add(self.status_label.set_text, self.tr("Download Completed."))
+        GLib.idle_add(self.status_label.set_text, tr("Download Completed."))
         self.pause_button.set_visible(False)
         self.cancel_button.set_visible(False)
         self.progress_box.set_visible(False)
@@ -2879,7 +2882,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.update_download("Finished", "--", "--", "--", finished_downloading=True)
         
         if self.app_settings.get("notifications"):
-           title = self.tr("Download Finished")
+           title = tr("Download Finished")
            body = f"{self.FileName}"
 
            if os.name == 'nt':
@@ -2919,9 +2922,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
         # this is weird i know, but it fixes a weird issue with flatpak and users with small screens, the bug cuts-out the label text..
         dummy_text = (
             f"<span font_features='tnum=1'>"
-            f"{self.tr('Downloaded:')} <b>999.99MB/999.99MB</b> | "
-            f"{self.tr('Progress:')} <b>100%</b> | "
-            f"{self.tr('Speed:')} <b>999.99MB/s</b> | "
+            f"{tr('Downloaded:')} <b>999.99MB/999.99MB</b> | "
+            f"{tr('Progress:')} <b>100%</b> | "
+            f"{tr('Speed:')} <b>999.99MB/s</b> | "
             f"ETA: <b>99:99:99</b>"
             f"</span>"
         )
@@ -2940,8 +2943,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.pause_event.clear()
             self.is_paused = True
             self.progress_bars[0].set_visible(False)
-            self.pause_button.set_label(self.tr("Start Seeding"))
-            self.status_label.set_text(self.tr("Paused Seeding"))
+            self.pause_button.set_label(tr("Start Seeding"))
+            self.status_label.set_text(tr("Paused Seeding"))
             self.pause_download()
             if os.path.exists(self.lock_file):
                 try: os.remove(self.lock_file)
@@ -2951,14 +2954,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 self.lock_file = self.output_file + '.lock'
                 open(self.lock_file, 'w').close()
             else:
-                self.status_label.set_label(self.tr("File is Already Downloading!"))
+                self.status_label.set_label(tr("File is Already Downloading!"))
                 self.status_label.set_name("red-text")
                 return
             self.is_paused = False
             self.progress_bars[0].set_visible(True)
             self.pause_event.set()
-            self.pause_button.set_label(self.tr("Stop Seeding"))
-            self.status_label.set_text(self.tr("Started Seeding..."))
+            self.pause_button.set_label(tr("Stop Seeding"))
+            self.status_label.set_text(tr("Started Seeding..."))
             
             self.threads.clear()
             self.completed_threads = 0
@@ -2972,8 +2975,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
             GLib.idle_add(self.pause_button.set_sensitive,False)
             self.pause_event.clear()
             self.is_paused = True
-            self.pause_button.set_label(self.tr("Updating..."))
-            self.status_label.set_text(self.tr("Paused."))
+            self.pause_button.set_label(tr("Updating..."))
+            self.status_label.set_text(tr("Paused."))
             self.download_started = False
             self.pause_download()
             if os.path.exists(self.lock_file):
@@ -2985,14 +2988,14 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 self.lock_file = self.output_file + '.lock'
                 open(self.lock_file, 'w').close()
             else:
-                self.status_label.set_label(self.tr("File is Already Downloading!"))
+                self.status_label.set_label(tr("File is Already Downloading!"))
                 self.status_label.set_name("red-text")
                 return
             self.is_paused = False
             GLib.idle_add(self.pause_button.set_sensitive,False)
             self.pause_event.set()
-            self.pause_button.set_label(self.tr("Updating..."))
-            self.status_label.set_text(self.tr("Downloading..."))
+            self.pause_button.set_label(tr("Updating..."))
+            self.status_label.set_text(tr("Downloading..."))
             self.download_started = True
             
             self.threads.clear()
@@ -3029,7 +3032,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             GLib.timeout_add(100, lambda: self.show_pause_button("Pause"))
 
     def show_pause_button(self, stat):
-        self.pause_button.set_label(self.tr(stat))
+        self.pause_button.set_label(tr(stat))
         self.pause_button.set_sensitive(True)
         return False
 
@@ -3067,15 +3070,15 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if self.is_supporting_range:
             GLib.idle_add(
                 self.est_time_label.set_markup,
-                f"{self.tr('Downloaded')}: <span font_features='tnum=1'><b>{self.downloaded_str}/{total_str}</b> ({self.progress:.0f}%)</span> | "
-                f"{self.tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
+                f"{tr('Downloaded')}: <span font_features='tnum=1'><b>{self.downloaded_str}/{total_str}</b> ({self.progress:.0f}%)</span> | "
+                f"{tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
                 f"ETA: <span font_features='tnum=1'><b>{self.eta_str}</b></span>"
             )
         else:
             GLib.idle_add(
                 self.est_time_label.set_markup,
-                f"{self.tr('Downloaded')}: <span font_features='tnum=1'><b>{self.downloaded_str}/--:--</b></span> | "
-                f"{self.tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
+                f"{tr('Downloaded')}: <span font_features='tnum=1'><b>{self.downloaded_str}/--:--</b></span> | "
+                f"{tr('Speed')}: <span font_features='tnum=1'><b>{self.speed_str}</b></span> | "
                 f"ETA: <span font_features='tnum=1'><b>--:--</b></span>"
             )
 
@@ -3171,17 +3174,17 @@ class DownloadWindow(Gtk.ApplicationWindow):
             print(f"DB Update Error: {e}")
 
     def confirm_cancelation(self):
-        dialog = Gtk.Dialog(title=self.tr("Cancel Confirmation"), transient_for=self, modal=True)
+        dialog = Gtk.Dialog(title=tr("Cancel Confirmation"), transient_for=self, modal=True)
         dialog.set_default_size(400, 125)
         dialog.set_resizable(False)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
         if os.name == 'nt': 
-            unique_dialog_title = f"{self.tr('Cancel Confirmation')} - {self.port}"
+            unique_dialog_title = f"{tr('Cancel Confirmation')} - {self.port}"
             dialog.set_title(unique_dialog_title)
             
             def center_dialog():
                 addOn.force_center_dialog(unique_dialog_title, "FlameGet")
-                dialog.set_title(self.tr("Cancel Confirmation"))
+                dialog.set_title(tr("Cancel Confirmation"))
                 return False
                 
             GLib.timeout_add(50, center_dialog)
@@ -3189,28 +3192,28 @@ class DownloadWindow(Gtk.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
                     margin_top=20, margin_bottom=20, margin_start=20, margin_end=20)
         buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        Label = Gtk.Label(label=self.tr("Do you want to cancel the download?"))
+        Label = Gtk.Label(label=tr("Do you want to cancel the download?"))
         Label.add_css_class("small-text")
         Label.set_hexpand(True)
         box.append(Label)
 
-        confirm_button = Gtk.Button(label=self.tr("Confirm"))
+        confirm_button = Gtk.Button(label=tr("Confirm"))
         confirm_button.add_css_class("generic-button")
         confirm_button.set_hexpand(True)
         confirm_button.connect("clicked", lambda *args: self.on_confirm_cancelation_response(dialog))
         confirm_button.connect("activate", lambda *args: self.on_confirm_cancelation_response(dialog))
         confirm_button.grab_focus()
-        cancel_button = Gtk.Button(label=self.tr("Cancel"))
+        cancel_button = Gtk.Button(label=tr("Cancel"))
         cancel_button.set_hexpand(True)
         cancel_button.add_css_class("btn_cancel")
         cancel_button.connect("clicked", lambda w : GLib.idle_add(dialog.destroy))
         
-        self.delete_files_also_check_btn = Gtk.CheckButton(label=self.tr(" Delete Associated Files?"))
+        self.delete_files_also_check_btn = Gtk.CheckButton(label=tr(" Delete Associated Files?"))
         self.delete_files_also_check_btn.set_active(self.app_settings.get("confirm_delete", True))
 
         def on_toggled(btn):
             self.app_settings["confirm_delete"] = btn.get_active()
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
         self.delete_files_also_check_btn.connect("toggled", on_toggled)
 
         self.delete_files_also_check_btn.set_hexpand(True)
@@ -3230,10 +3233,10 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.is_canceled = True
         self.pause_event.set()
         self.connections_spin.set_sensitive(True)
-        self.status_label.set_text(self.tr("Cancelled."))
+        self.status_label.set_text(tr("Cancelled."))
         self.is_completed = False
         self.download_started = False
-        self.download_button.set_label(self.tr("Download"))
+        self.download_button.set_label(tr("Download"))
         if hasattr(self, 'aria_proc'):
             self.aria_proc.terminate()
             self.aria_proc.wait(timeout=2)
@@ -3342,21 +3345,15 @@ class DownloadWindow(Gtk.ApplicationWindow):
         
         return UI_size_str, UI_speed
 
-    def tr(self, text):
-        lang = self.app_settings.get("language", "en")
-        if lang in self.translations and text in self.translations[lang]:
-            return self.translations[lang][text]
-        return text
-
     def update_resume_status(self, init=False):
         if init:
-            self.resume_ability.set_markup(f"{self.tr('Resume Support:')} <b>---</b>")
+            self.resume_ability.set_markup(f"{tr('Resume Support:')} <b>---</b>")
             return
 
         if self.is_supporting_range or self.is_torrent:
-            self.resume_ability.set_markup(f"{self.tr('Resume Support:')} <b><span foreground='#4CAF50'>{self.tr('YES')}</span></b>")
+            self.resume_ability.set_markup(f"{tr('Resume Support:')} <b><span foreground='#4CAF50'>{tr('YES')}</span></b>")
         else:
-            self.resume_ability.set_markup(f"{self.tr('Resume Support:')} <b><span foreground='#e53935'>{self.tr('NO')}</span></b>")
+            self.resume_ability.set_markup(f"{tr('Resume Support:')} <b><span foreground='#e53935'>{tr('NO')}</span></b>")
 
     def is_connected(self):
         try:
@@ -3543,7 +3540,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 class DownloaderAppManager(Gtk.Application):
     def __init__(self):
         super().__init__(
-            application_id="io.github.C_Yassin.FlameGet.Downloader",  
+            application_id="io.github.C_Yassin.FlameGet.Downloader" if is_flatpak_env else "FlameGet.Downloader",  
             flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE
         )
         GLib.set_prgname('FlameGet')
@@ -3593,7 +3590,6 @@ class DownloaderAppManager(Gtk.Application):
         except json.JSONDecodeError:
             print("Error: Could not parse torrent data JSON.")
             torrent_data_list = []
-
         win = DownloadWindow(
             app_manager=self,
             url=args.file_url, 

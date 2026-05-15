@@ -20,7 +20,7 @@ from gi.repository import Gtk, Gio, GObject, Gdk, GLib, Graphene, Pango
 from urllib.parse import urlparse, unquote, parse_qs
 import Toast as toast
 import FireAddOns as addOn
-import SaveManager
+from SaveManager import load_css, load_settings, save_settings, tr
 from updater import SilentUpdater, UpdaterWindow, FLAMEGET_VERSION
 
 yt_dlp = addOn.lazy_import("yt_dlp")
@@ -236,7 +236,6 @@ class FlameGetManager(Gtk.Application):
         self.server_script_path = fire_files.server_script_path
         
         self.download_folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD)
-        self.translations = SaveManager.load_translations()
         self.prev_statuses = {} 
 
         self.tray_process = None
@@ -244,7 +243,7 @@ class FlameGetManager(Gtk.Application):
         self.server_socket = None
         self.server_running = False
 
-        self.app_settings = SaveManager.load_settings(self.download_folder)
+        self.app_settings = load_settings(self.download_folder)
         self.download_engine = self.app_settings.get("engine").lower()
         saved_dir = self.app_settings.get("default_download_dir")
         if saved_dir and os.path.exists(saved_dir):
@@ -256,12 +255,6 @@ class FlameGetManager(Gtk.Application):
         self.current_toast = None
         self.is_rtl = False
         self.setup_signal_handlers()
-
-    def tr(self, text):
-        lang = self.app_settings.get("language", "en")
-        if lang in self.translations and text in self.translations[lang]:
-            return self.translations[lang][text]
-        return text
 
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(application=self, title=self.app_name)
@@ -304,7 +297,7 @@ class FlameGetManager(Gtk.Application):
         self.drop_icon = Gtk.Image.new_from_icon_name("xsi-document-new-symbolic")
         self.drop_icon.set_pixel_size(128)
         
-        self.drop_label = Gtk.Label(label=self.tr("Drop Here"))
+        self.drop_label = Gtk.Label(label=tr("Drop Here"))
         self.drop_label.add_css_class("drop-text") 
 
         inner_content.append(self.drop_icon)
@@ -326,9 +319,9 @@ class FlameGetManager(Gtk.Application):
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         footer.set_hexpand(True)
         footer.add_css_class("footer")
-        self.active_label = Gtk.Label(label=f"{self.tr("Active")}: 0")
-        self.paused_label = Gtk.Label(label=f"{self.tr("Paused")}: 0")
-        self.total_label = Gtk.Label(label=f"{self.tr("Total")}: 0")
+        self.active_label = Gtk.Label(label=f"{tr("Active")}: 0")
+        self.paused_label = Gtk.Label(label=f"{tr("Paused")}: 0")
+        self.total_label = Gtk.Label(label=f"{tr("Total")}: 0")
         stats_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         stats_box.append(self.active_label)
         stats_box.append(self.paused_label)
@@ -389,7 +382,7 @@ class FlameGetManager(Gtk.Application):
                 box.set_margin_top(8); box.set_margin_bottom(8)
                 
                 img = Gtk.Image.new_from_icon_name(icon)
-                lbl = Gtk.Label(label=self.tr(label), xalign=0)
+                lbl = Gtk.Label(label=tr(label), xalign=0)
                 if label == "Unfinished":
                     row.add_css_class("unfinished-label")
                 elif label == "Finished":
@@ -456,18 +449,11 @@ class FlameGetManager(Gtk.Application):
         GLib.idle_add(self.drop_box.set_visible, False)
 
     def build_custom_context_menu(self):
-        self.context_popover = Gtk.Popover()
-        self.context_popover.add_css_class("context_popover")
-        self.context_popover.set_has_arrow(False)
-        self.context_popover.set_parent(self.overlay)
-        self.context_popover.set_autohide(True)
-        
         self.context_menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self.context_menu_box.set_margin_top(5)
         self.context_menu_box.set_margin_bottom(5)
         self.context_menu_box.set_margin_start(5)
         self.context_menu_box.set_margin_end(5)
-        self.context_popover.set_child(self.context_menu_box)
 
         self._add_menu_item("Open File", "xsi-folder-symbolic", self.ctx_open_file)
         self._add_menu_item("Open Folder", "xsi-folder-open-symbolic", self.ctx_open_folder)
@@ -484,6 +470,32 @@ class FlameGetManager(Gtk.Application):
         self._add_menu_item("Retry Download", "xsi-view-refresh-symbolic", self.ctx_redo_download)
         self._add_menu_item("Delete File", "xsi-user-trash-symbolic", self.ctx_delete_file, "destructive-action")
 
+        self.context_fixed = Gtk.Fixed()
+        self.context_fixed.put(self.context_menu_box, 0, 0)
+        self.context_fixed.set_visible(False)
+        self.overlay.add_overlay(self.context_fixed)
+        self.setup_autohide_behavior()
+
+    def setup_autohide_behavior(self):
+        self.autohide_gesture = Gtk.GestureClick.new()
+        self.autohide_gesture.set_button(0) 
+        self.autohide_gesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.autohide_gesture.connect("pressed", self._on_overlay_clicked)
+        self.overlay.add_controller(self.autohide_gesture)
+
+    def _on_overlay_clicked(self, gesture, n_press, x, y):
+        if not self.context_fixed.get_visible():
+            return
+        success, bounds = self.context_menu_box.compute_bounds(self.overlay)
+        if success:
+            is_inside_menu = (
+                bounds.origin.x <= x <= (bounds.origin.x + bounds.size.width) and
+                bounds.origin.y <= y <= (bounds.origin.y + bounds.size.height)
+            )
+            if not is_inside_menu:
+                self.context_fixed.set_visible(False)
+                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+
     def _add_menu_item(self, label, icon_name, callback, css_class=None):
         btn = Gtk.Button()
         btn.add_css_class("flat")
@@ -492,14 +504,14 @@ class FlameGetManager(Gtk.Application):
             
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         img = Gtk.Image.new_from_icon_name(icon_name)
-        lbl = Gtk.Label(label=self.tr(label), xalign=0)
+        lbl = Gtk.Label(label=tr(label), xalign=0)
         
         box.append(img)
         box.append(lbl)
         btn.set_child(box)
         btn.lbl = lbl
         def on_click(b):
-            self.context_popover.popdown()
+            self.context_fixed.set_visible(False)
             callback()
             
         btn.connect("clicked", on_click)
@@ -530,9 +542,9 @@ class FlameGetManager(Gtk.Application):
             full_path = os.path.join(item.file_directory, item.filename)
             if os.path.exists(full_path):
                 self.open_file_direct(full_path)
-                self.show_toast_popup(f"{self.tr("Opening File: ")}{item.filename}")
+                self.show_toast_popup(f"{tr("Opening File: ")}{item.filename}")
             else:
-                self.show_toast_popup(f"{self.tr("Couldn't Open File:")} {item.filename}", color="red_toast")
+                self.show_toast_popup(f"{tr("Couldn't Open File:")} {item.filename}", color="red_toast")
 
     def ctx_open_folder(self):
         item = self._get_first_selected()
@@ -540,16 +552,16 @@ class FlameGetManager(Gtk.Application):
             full_path = os.path.join(item.file_directory, item.filename)
             if os.path.exists(full_path):
                 self.show_file_in_folder(full_path)
-                self.show_toast_popup(f"{self.tr("Opening File's Folder...")}")
+                self.show_toast_popup(f"{tr("Opening File's Folder...")}")
             else:
-                self.show_toast_popup(f"{self.tr("Couldn't Open Folder")}", color="red_toast")
+                self.show_toast_popup(f"{tr("Couldn't Open Folder")}", color="red_toast")
 
     def ctx_copy_url(self):
         item = self._get_first_selected()
         if item and item.url:
             clipboard = Gdk.Display.get_default().get_clipboard()
             clipboard.set(item.url)
-            self.show_toast_popup(f"{self.tr("Copied to clipboard:")} {self.shorten_filename(item.url)}")
+            self.show_toast_popup(f"{tr("Copied to clipboard:")} {self.shorten_filename(item.url)}")
 
     def ctx_pause(self):
         self.stop_download(None, self.selection_model)
@@ -694,7 +706,7 @@ class FlameGetManager(Gtk.Application):
         btn_new = Gtk.Button()
         box_new = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         icon_new = Gtk.Image.new_from_icon_name("xsi-list-add-symbolic")
-        lbl_new = Gtk.Label(label=self.tr("New Download"))
+        lbl_new = Gtk.Label(label=tr("New Download"))
         box_new.append(icon_new)
         box_new.append(lbl_new)
         btn_new.set_child(box_new)
@@ -755,14 +767,14 @@ class FlameGetManager(Gtk.Application):
         self.btn_select_all = Gtk.Button(icon_name="xsi-edit-select-all-symbolic")
         self.btn_select_all.add_css_class("connected-button")
         self.btn_select_all.add_css_class("no-border-right")
-        self.btn_select_all.set_tooltip_text(self.tr("Select All"))
+        self.btn_select_all.set_tooltip_text(tr("Select All"))
         self.btn_select_all.set_direction(Gtk.TextDirection.LTR)
 
         self.copy_url_btn = Gtk.Button(icon_name="xsi-edit-copy-symbolic")
         self.copy_url_btn.set_direction(Gtk.TextDirection.LTR)
         self.copy_url_btn.add_css_class("connected-button")
         self.copy_url_btn.set_sensitive(False)
-        self.copy_url_btn.set_tooltip_text(self.tr("Copy URL"))
+        self.copy_url_btn.set_tooltip_text(tr("Copy URL"))
         self.copy_url_btn.connect("clicked", lambda btn : self.ctx_copy_url())
 
         tools_box.append(self.btn_select_all)
@@ -781,7 +793,7 @@ class FlameGetManager(Gtk.Application):
 
         search = Gtk.SearchEntry()
         search.add_css_class("search-bar")
-        search.set_placeholder_text(self.tr("Search in the List"))
+        search.set_placeholder_text(tr("Search in the List"))
         search.connect('search-changed', self.on_search_changed)
         toolbar_box.append(search)
         
@@ -792,7 +804,7 @@ class FlameGetManager(Gtk.Application):
         toolbar_box.append(btn_settings)
         btn_help = Gtk.MenuButton(icon_name="xsi-sign-info-symbolic")
         btn_help.add_css_class("generic-button")
-        btn_help.set_tooltip_text(self.tr("Help & About"))
+        btn_help.set_tooltip_text(tr("Help & About"))
 
         help_popover = Gtk.Popover()
         help_popover.add_css_class("about-menu")
@@ -809,7 +821,7 @@ class FlameGetManager(Gtk.Application):
             btn.add_css_class("generic-button")
             box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             box.append(Gtk.Image.new_from_icon_name(icon_name))
-            box.append(Gtk.Label(label=self.tr(label), xalign=0))
+            box.append(Gtk.Label(label=tr(label), xalign=0))
             btn.set_child(box)
             
             def on_click(b):
@@ -836,7 +848,7 @@ class FlameGetManager(Gtk.Application):
         return toolbar_box
 
     def open_settings_window(self, btn):
-        dialog = Gtk.Window(title=self.tr("Settings"))
+        dialog = Gtk.Window(title=tr("Settings"))
         dialog.set_transient_for(self.window)
         dialog.set_modal(True)
         dialog.set_default_size(800, 600)
@@ -874,7 +886,7 @@ class FlameGetManager(Gtk.Application):
                 self._listening_action = None
         
         def get_key_string(keyval, state):
-            if keyval == 0: return self.tr("Disabled")
+            if keyval == 0: return tr("Disabled")
             accelerator = Gtk.accelerator_name(keyval, Gdk.ModifierType(state))
             return accelerator.replace("<Primary>", "Ctrl+").replace("<Control>", "Ctrl+").replace("<Shift>", "Shift+").replace("<Alt>", "Alt+")
 
@@ -897,14 +909,14 @@ class FlameGetManager(Gtk.Application):
                     dir_entry.set_text(path)
                     self.app_settings["default_download_dir"] = path
                     self.download_folder = path
-                    SaveManager.save_settings(self.app_settings)
+                    save_settings(self.app_settings)
                 except: pass
             fd.select_folder(dialog, None, on_d_done)
         btn_dir.connect("clicked", on_dir_pick)
         dir_box.append(dir_entry); dir_box.append(btn_dir)
         gen_box.append(dir_box)
 
-        gen_box.append(self.create_settings_label(self.tr("Language (Requires Restart)")))
+        gen_box.append(self.create_settings_label(tr("Language (Requires Restart)")))
         dd_lang = Gtk.DropDown.new_from_strings(["English (en)", "French (fr)", "Spanish (es)","Arabic (ar)", "Russian (ru)"])
         if self.is_rtl: dd_lang.add_css_class("dropmenu-rtl")
         langs = ["en", "fr", "es", "ar", "ru"]
@@ -913,13 +925,13 @@ class FlameGetManager(Gtk.Application):
         except: dd_lang.set_selected(0)
         def on_lang_change(dd, p):
             self.app_settings["language"] = langs[dd.get_selected()]
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
         dd_lang.connect("notify::selected", on_lang_change)
         gen_box.append(dd_lang)
 
-        gen_box.append(self.create_settings_label(self.tr("When All Downloads Finish")))
+        gen_box.append(self.create_settings_label(tr("When All Downloads Finish")))
         action_options = ["Do Nothing", "Shutdown System", "Restart System", "Suspend System", "Run Custom Command"]
-        dd_action = Gtk.DropDown.new_from_strings([self.tr(opt) for opt in action_options])
+        dd_action = Gtk.DropDown.new_from_strings([tr(opt) for opt in action_options])
         if self.is_rtl: dd_action.add_css_class("dropmenu-rtl")
         curr_action = self.app_settings.get("on_finish_action", "Do Nothing")
         try: dd_action.set_selected(action_options.index(curr_action))
@@ -928,7 +940,7 @@ class FlameGetManager(Gtk.Application):
         cmd_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         
-        cmd_lbl = Gtk.Label(label=self.tr("Custom Command (Shell):"), xalign=0)
+        cmd_lbl = Gtk.Label(label=tr("Custom Command (Shell):"), xalign=0)
         cmd_lbl.add_css_class("caption")
         header_box.append(cmd_lbl)
 
@@ -936,24 +948,24 @@ class FlameGetManager(Gtk.Application):
         btn_help.set_icon_name("xsi-utilities-terminal-symbolic")
         btn_help.set_valign(Gtk.Align.CENTER)
         btn_help.add_css_class("flat")
-        btn_help.set_tooltip_text(self.tr("View available placeholders"))
+        btn_help.set_tooltip_text(tr("View available placeholders"))
 
         popover = Gtk.Popover()
         pop_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         pop_content.set_margin_top(10); pop_content.set_margin_bottom(10)
         pop_content.set_margin_start(10); pop_content.set_margin_end(10)
 
-        lbl_info = Gtk.Label(label=self.tr("Variables you can use:"))
+        lbl_info = Gtk.Label(label=tr("Variables you can use:"))
         lbl_info.add_css_class("heading")
         lbl_info.set_halign(Gtk.Align.START)
         pop_content.append(lbl_info)
 
         variables = [
-            ("{{downloaded_file}}", self.tr("Full path to file")),
-            ("{{filename}}", self.tr("Filename only")),
-            ("{{directory}}", self.tr("Folder path only")),
-            ("{{url}}", self.tr("Download URL")),
-            ("{{size_bytes}}", self.tr("Size in bytes")),
+            ("{{downloaded_file}}", tr("Full path to file")),
+            ("{{filename}}", tr("Filename only")),
+            ("{{directory}}", tr("Folder path only")),
+            ("{{url}}", tr("Download URL")),
+            ("{{size_bytes}}", tr("Size in bytes")),
         ]
 
         for var, desc in variables:
@@ -970,10 +982,10 @@ class FlameGetManager(Gtk.Application):
         btn_help.set_popover(popover)
         
         header_box.append(btn_help)
-        cmd_lbl = Gtk.Label(label=f"{self.tr("Custom Command (Shell):")}", xalign=0)
+        cmd_lbl = Gtk.Label(label=f"{tr("Custom Command (Shell):")}", xalign=0)
         cmd_lbl.add_css_class("caption")
         cmd_entry = Gtk.Entry(); cmd_entry.add_css_class("entry")
-        cmd_entry.set_placeholder_text(self.tr("WARNING! DANGEROUS TERRITORY!"))
+        cmd_entry.set_placeholder_text(tr("WARNING! DANGEROUS TERRITORY!"))
         cmd_entry.set_text(self.app_settings.get("custom_finish_cmd", ""))
         cmd_box.append(header_box)
         cmd_box.append(cmd_entry)
@@ -982,7 +994,7 @@ class FlameGetManager(Gtk.Application):
         def on_action_change(dd, p):
             action = action_options[dd.get_selected()]
             self.app_settings["on_finish_action"] = action
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
             cmd_box.set_visible(action == "Run Custom Command")
         dd_action.connect("notify::selected", on_action_change)
         
@@ -991,7 +1003,7 @@ class FlameGetManager(Gtk.Application):
             
             if self.is_safe_command(text):
                 self.app_settings["custom_finish_cmd"] = text
-                SaveManager.save_settings(self.app_settings)
+                save_settings(self.app_settings)
                 e.remove_css_class("error") 
             else:
                 e.add_css_class("error")
@@ -1020,51 +1032,51 @@ class FlameGetManager(Gtk.Application):
         on_cmd_change(cmd_entry)
         gen_box.append(dd_action); gen_box.append(cmd_box)
 
-        chk_del = Gtk.CheckButton(label=self.tr("Confirm before deleting tasks"))
+        chk_del = Gtk.CheckButton(label=tr("Confirm before deleting tasks"))
         chk_del.set_active(self.app_settings.get("confirm_delete", True))
-        chk_del.connect("toggled", lambda b: self.app_settings.update({"confirm_delete": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        chk_del.connect("toggled", lambda b: self.app_settings.update({"confirm_delete": b.get_active()}) or save_settings(self.app_settings))
         gen_box.append(chk_del)
 
-        chk_notif = Gtk.CheckButton(label=self.tr("Show Desktop Notifications (When finished)"))
+        chk_notif = Gtk.CheckButton(label=tr("Show Desktop Notifications (When finished)"))
         chk_notif.set_active(self.app_settings.get("notifications", True))
-        chk_notif.connect("toggled", lambda b: self.app_settings.update({"notifications": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        chk_notif.connect("toggled", lambda b: self.app_settings.update({"notifications": b.get_active()}) or save_settings(self.app_settings))
         gen_box.append(chk_notif)
 
-        enable_toasts = Gtk.CheckButton(label=self.tr("Show Short Pop-up Messages (Toasts)"))
+        enable_toasts = Gtk.CheckButton(label=tr("Show Short Pop-up Messages (Toasts)"))
         enable_toasts.set_active(self.app_settings.get("enable_toasts", True))
-        enable_toasts.connect("toggled", lambda b: self.app_settings.update({"enable_toasts": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        enable_toasts.connect("toggled", lambda b: self.app_settings.update({"enable_toasts": b.get_active()}) or save_settings(self.app_settings))
         gen_box.append(enable_toasts)
 
-        chk_finish = Gtk.CheckButton(label=self.tr("Show Dialog when Download Finishes"))
+        chk_finish = Gtk.CheckButton(label=tr("Show Dialog when Download Finishes"))
         chk_finish.set_active(self.app_settings.get("show_finish_dialog", True))
-        chk_finish.connect("toggled", lambda b: self.app_settings.update({"show_finish_dialog": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        chk_finish.connect("toggled", lambda b: self.app_settings.update({"show_finish_dialog": b.get_active()}) or save_settings(self.app_settings))
         gen_box.append(chk_finish)
 
-        chk_boot = Gtk.CheckButton(label=self.tr("Start on Boot"))
+        chk_boot = Gtk.CheckButton(label=tr("Start on Boot"))
         chk_boot.set_active(self.app_settings.get("start_on_boot", False))
         def on_boot_change(btn):
             self.app_settings["start_on_boot"] = btn.get_active()
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
             self.toggle_autostart(btn.get_active())
         chk_boot.connect("toggled", on_boot_change)
         gen_box.append(chk_boot)
 
-        auto_start = Gtk.CheckButton(label=self.tr("Start Download Immediately"))
-        auto_start.set_tooltip_text(self.tr("If checked, the downloads will begin instantly when added, skipping the 'Download' button."))
+        auto_start = Gtk.CheckButton(label=tr("Start Download Immediately"))
+        auto_start.set_tooltip_text(tr("If checked, the downloads will begin instantly when added, skipping the 'Download' button."))
         auto_start.set_active(self.app_settings.get("auto_start", False))
-        auto_start.connect("toggled", lambda b: self.app_settings.update({"auto_start": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        auto_start.connect("toggled", lambda b: self.app_settings.update({"auto_start": b.get_active()}) or save_settings(self.app_settings))
         gen_box.append(auto_start)
 
-        start_minimized = Gtk.CheckButton(label=self.tr("Start in Minimized Mode"))
-        start_minimized.set_tooltip_text(self.tr("If checked, The downloads will begin in the background."))
+        start_minimized = Gtk.CheckButton(label=tr("Start in Minimized Mode"))
+        start_minimized.set_tooltip_text(tr("If checked, The downloads will begin in the background."))
         start_minimized.set_active(self.app_settings.get("start_in_minimize_mode", False))
-        start_minimized.connect("toggled", lambda b: self.app_settings.update({"start_in_minimize_mode": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        start_minimized.connect("toggled", lambda b: self.app_settings.update({"start_in_minimize_mode": b.get_active()}) or save_settings(self.app_settings))
         gen_box.append(start_minimized)
 
-        disable_seeding = Gtk.CheckButton(label=self.tr("Disable Seeding"))
-        disable_seeding.set_tooltip_text(self.tr("If checked, seeding torrents will be disabled."))
+        disable_seeding = Gtk.CheckButton(label=tr("Disable Seeding"))
+        disable_seeding.set_tooltip_text(tr("If checked, seeding torrents will be disabled."))
         disable_seeding.set_active(self.app_settings.get("disable_seeding", False))
-        disable_seeding.connect("toggled", lambda b: self.app_settings.update({"disable_seeding": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        disable_seeding.connect("toggled", lambda b: self.app_settings.update({"disable_seeding": b.get_active()}) or save_settings(self.app_settings))
         gen_box.append(disable_seeding)
 
         stack.add_named(gen_box, "General")
@@ -1080,27 +1092,27 @@ class FlameGetManager(Gtk.Application):
         def on_eng_change(dd, p):
             self.app_settings["engine"] = "Curl" if dd.get_selected() == 1 else "Aria2"
             self.download_engine = self.app_settings["engine"].lower()
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
         dd_eng.connect("notify::selected", on_eng_change)
         net_box.append(dd_eng)
 
         net_box.append(self.create_settings_label("User Agent"))
         ua_entry = Gtk.Entry(); ua_entry.add_css_class("entry")
         ua_entry.set_text(self.app_settings.get("user_agent", ""))
-        ua_entry.connect("changed", lambda e: self.app_settings.update({"user_agent": e.get_text()}) or SaveManager.save_settings(self.app_settings))
+        ua_entry.connect("changed", lambda e: self.app_settings.update({"user_agent": e.get_text()}) or save_settings(self.app_settings))
         net_box.append(ua_entry)
 
         net_box.append(self.create_settings_label("Default Segments (Connections)"))
         spin_seg = Gtk.SpinButton.new_with_range(1, 32, 1)
         spin_seg.add_css_class("entry")
         spin_seg.set_value(self.app_settings.get("default_segments", 8))
-        spin_seg.connect("value-changed", lambda s: self.app_settings.update({"default_segments": int(s.get_value())}) or SaveManager.save_settings(self.app_settings))
+        spin_seg.connect("value-changed", lambda s: self.app_settings.update({"default_segments": int(s.get_value())}) or save_settings(self.app_settings))
         net_box.append(spin_seg)
 
         net_box.append(self.create_settings_label("Global Speed Limit (e.g. 500, Only numbers (value auto converts to K)"))
         speed_entry = Gtk.Entry(); speed_entry.add_css_class("entry")
         speed_entry.set_text(str(self.app_settings.get("global_speed_limit", "0")))
-        speed_entry.connect("changed", lambda e: self.app_settings.update({"global_speed_limit": e.get_text()}) or SaveManager.save_settings(self.app_settings))
+        speed_entry.connect("changed", lambda e: self.app_settings.update({"global_speed_limit": e.get_text()}) or save_settings(self.app_settings))
         net_box.append(speed_entry)
 
         stack.add_named(net_box, "Network")
@@ -1109,7 +1121,7 @@ class FlameGetManager(Gtk.Application):
         app_box.set_margin_top(20); app_box.set_margin_bottom(20); app_box.set_margin_start(20); app_box.set_margin_end(20)
         
         app_box.append(self.create_settings_label("Global Theme"))
-        dd_theme = Gtk.DropDown.new_from_strings([self.tr("Dark"), self.tr("Light"), self.tr("Custom")])
+        dd_theme = Gtk.DropDown.new_from_strings([tr("Dark"), tr("Light"), tr("Custom")])
         if self.is_rtl: dd_theme.add_css_class("dropmenu-rtl")
         theme_map = ["Dark", "Light", "Custom"]
         curr_theme = self.app_settings.get("theme_mode", "Dark")
@@ -1121,7 +1133,7 @@ class FlameGetManager(Gtk.Application):
         def on_theme_change(dd, p):
             new_theme = theme_map[dd.get_selected()]
             self.app_settings["theme_mode"] = new_theme
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
             addOn.set_titlebar_theme(dialog.get_title(), self.app_settings.get("theme_mode"))
             self.apply_theme_and_font()
             if hasattr(self, "css_editor_box"):
@@ -1132,36 +1144,36 @@ class FlameGetManager(Gtk.Application):
         app_box.append(dd_theme)
 
         ctx_offsets_label = self.create_settings_label("Context Menu Offset")
-        ctx_offsets_label.set_tooltip_text(self.tr("Change This if You Have Troubles With Your Context Menu."))
+        ctx_offsets_label.set_tooltip_text(tr("Change This if You Have Troubles With Your Context Menu."))
         app_box.append(ctx_offsets_label)
 
         offset_box = Gtk.Box(spacing=10); offset_box.set_hexpand(True)
-        label_x = Gtk.Label(label=self.tr("Offset X:"))
+        label_x = Gtk.Label(label=tr("Offset X:"))
         spin_x = Gtk.SpinButton.new_with_range(-1000, 1000, 1)
         spin_x.add_css_class("entry"); spin_x.set_value(self.app_settings.get("ctx_menu_offsets")["x"]); spin_x.set_hexpand(True)
-        spin_x.connect("value-changed", lambda w: self.app_settings["ctx_menu_offsets"].update({"x": w.get_value()}) or SaveManager.save_settings(self.app_settings))
+        spin_x.connect("value-changed", lambda w: self.app_settings["ctx_menu_offsets"].update({"x": w.get_value()}) or save_settings(self.app_settings))
         
-        label_y = Gtk.Label(label=self.tr("Offset Y:"))
+        label_y = Gtk.Label(label=tr("Offset Y:"))
         spin_y = Gtk.SpinButton.new_with_range(-1000, 1000, 1)
         spin_y.add_css_class("entry"); spin_y.set_value(self.app_settings.get("ctx_menu_offsets")["y"]); spin_y.set_hexpand(True)
-        spin_y.connect("value-changed", lambda w: self.app_settings["ctx_menu_offsets"].update({"y": w.get_value()}) or SaveManager.save_settings(self.app_settings))
+        spin_y.connect("value-changed", lambda w: self.app_settings["ctx_menu_offsets"].update({"y": w.get_value()}) or save_settings(self.app_settings))
 
         offset_box.append(label_x); offset_box.append(spin_x); offset_box.append(label_y); offset_box.append(spin_y)
         app_box.append(offset_box)
 
-        chk_has_borders = Gtk.CheckButton(label=self.tr("Disable cell borders"))
+        chk_has_borders = Gtk.CheckButton(label=tr("Disable cell borders"))
         chk_has_borders.set_active(self.app_settings.get("chk_has_borders", True))
-        chk_has_borders.connect("toggled", lambda b: self.app_settings.update({"chk_has_borders": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        chk_has_borders.connect("toggled", lambda b: self.app_settings.update({"chk_has_borders": b.get_active()}) or save_settings(self.app_settings))
         app_box.append(chk_has_borders)
 
-        label_cells_size = Gtk.Label(label=self.tr("Row size (px):"))
+        label_cells_size = Gtk.Label(label=tr("Row size (px):"))
         cells_size_box = Gtk.Box(spacing=10); offset_box.set_hexpand(True)
         cells_size = Gtk.Entry()
         cells_size.set_hexpand(True)
         cells_size.set_text(f"{self.app_settings.get("cells_size", 1)}")
         cells_size.add_css_class("entry")
-        cells_size.set_placeholder_text(self.tr("Set the size of your rows in pixels"))
-        cells_size.connect("changed", lambda b: self.app_settings.update({"cells_size": b.get_text()}) or SaveManager.save_settings(self.app_settings))
+        cells_size.set_placeholder_text(tr("Set the size of your rows in pixels"))
+        cells_size.connect("changed", lambda b: self.app_settings.update({"cells_size": b.get_text()}) or save_settings(self.app_settings))
         cells_size_box.append(label_cells_size)
         cells_size_box.append(cells_size)
         app_box.append(cells_size_box)
@@ -1178,7 +1190,7 @@ class FlameGetManager(Gtk.Application):
             new_font_desc = button.get_font_desc()
             new_font_string = new_font_desc.to_string()
             self.app_settings["font_name"] = new_font_string
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
             self.apply_theme_and_font()
 
         font_btn.connect("notify::font-desc", on_font_changed)
@@ -1189,7 +1201,7 @@ class FlameGetManager(Gtk.Application):
         scale_spin.add_css_class("entry"); scale_spin.set_value(self.app_settings.get("ui_scale", 100))
         def on_scale_change(s):
             self.app_settings["ui_scale"] = int(s.get_value())
-            SaveManager.save_settings(self.app_settings)
+            save_settings(self.app_settings)
             self.apply_theme_and_font()
         scale_spin.connect("value-changed", on_scale_change)
         app_box.append(scale_spin)
@@ -1221,16 +1233,16 @@ class FlameGetManager(Gtk.Application):
                     f = fd.open_finish(r)
                     path = f.get_path()
                     self.app_settings["css_path"] = path
-                    SaveManager.save_settings(self.app_settings)
+                    save_settings(self.app_settings)
                     css_entry.set_text(path)
                     with open(path, 'r') as fr: txt_view.get_buffer().set_text(fr.read())
-                    SaveManager.load_css(self.app_settings.get("theme_mode"))
+                    load_css(self.app_settings.get("theme_mode"))
                     addOn.set_titlebar_theme(self.app_name, self.app_settings.get("theme_mode"))
                 except: pass
             fd.open(dialog, None, on_c_open)
         btn_css.connect("clicked", on_css_pick)
         
-        btn_save_css = Gtk.Button(label=self.tr("Save & Apply CSS"))
+        btn_save_css = Gtk.Button(label=tr("Save & Apply CSS"))
         btn_save_css.add_css_class("generic-button")
         def on_save_css(b):
             p = self.app_settings.get("css_path", "")
@@ -1239,7 +1251,7 @@ class FlameGetManager(Gtk.Application):
             txt = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), True)
             try:
                 with open(p, 'w') as f: f.write(txt)
-                SaveManager.load_css(self.app_settings.get("theme_mode"))
+                load_css(self.app_settings.get("theme_mode"))
                 addOn.set_titlebar_theme(self.app_name, self.app_settings.get("theme_mode"))
             except: pass
         btn_save_css.connect("clicked", on_save_css)
@@ -1253,16 +1265,16 @@ class FlameGetManager(Gtk.Application):
         brower_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         brower_box.set_margin_top(20); brower_box.set_margin_bottom(20); brower_box.set_margin_start(20); brower_box.set_margin_end(20)
         url = "https://github.com/C-Yassin/FlameGet"
-        brower_box.append(self.create_settings_label("for browser integration", markup=f"{self.tr("Browser Integration (Don't have it?)")} <a href='{url}'>{self.tr("click here")}</a>!"))
-        enable_integration = Gtk.CheckButton(label=self.tr("Enable Browser Integration"))
+        brower_box.append(self.create_settings_label("for browser integration", markup=f"{tr("Browser Integration (Don't have it?)")} <a href='{url}'>{tr("click here")}</a>!"))
+        enable_integration = Gtk.CheckButton(label=tr("Enable Browser Integration"))
         enable_integration.set_active(self.app_settings["enable_integration"])
-        enable_integration.connect("toggled", lambda b: self.app_settings.update({"enable_integration": b.get_active()}) or SaveManager.save_settings(self.app_settings))
+        enable_integration.connect("toggled", lambda b: self.app_settings.update({"enable_integration": b.get_active()}) or save_settings(self.app_settings))
         brower_box.append(enable_integration)
 
         brower_box.append(self.create_settings_label("Browser Integration Port"))
         port_entry = Gtk.Entry(); port_entry.add_css_class("entry")
         port_entry.set_text(str(self.app_settings.get("browser_port", 6812)))
-        port_entry.connect("changed", lambda e: self.app_settings.update({"browser_port": e.get_text()}) or SaveManager.save_settings(self.app_settings))
+        port_entry.connect("changed", lambda e: self.app_settings.update({"browser_port": e.get_text()}) or save_settings(self.app_settings))
         brower_box.append(port_entry)
         stack.add_named(brower_box, "Browser")
 
@@ -1271,16 +1283,16 @@ class FlameGetManager(Gtk.Application):
         shortcuts_box.set_margin_start(20); shortcuts_box.set_margin_end(20)
 
         shortcuts_box.append(self.create_settings_label("Keyboard Shortcuts"))
-        lbl_hint = Gtk.Label(label=self.tr("Click a button to change its shortcut. Press Backspace to disable."))
+        lbl_hint = Gtk.Label(label=tr("Click a button to change its shortcut. Press Backspace to disable."))
         lbl_hint.add_css_class("caption"); lbl_hint.set_halign(Gtk.Align.START)
         shortcuts_box.append(lbl_hint)
 
         grid = Gtk.Grid(); grid.set_column_spacing(20); grid.set_row_spacing(10); grid.set_hexpand(True)
-        shortcut_map = [("new_download", self.tr("New Download")), ("delete", self.tr("Delete Selected")), ("select_all", self.tr("Select All")), ("open_file", self.tr("Open File")), ("quit", self.tr("Quit Application")), ("close_window", self.tr("Close Window"))]
+        shortcut_map = [("new_download", tr("New Download")), ("delete", tr("Delete Selected")), ("select_all", tr("Select All")), ("open_file", tr("Open File")), ("quit", tr("Quit Application")), ("close_window", tr("Close Window"))]
 
         def start_listening(btn, action_key):
             stop_listening_safe()
-            btn.set_label(self.tr("Press keys..."))
+            btn.set_label(tr("Press keys..."))
             btn.add_css_class("accent") 
             controller = Gtk.EventControllerKey()
             self._listening_btn = btn; self._listening_controller = controller; self._listening_action = action_key
@@ -1289,8 +1301,8 @@ class FlameGetManager(Gtk.Application):
                 if keyval == Gdk.KEY_Escape:
                     stop_listening_safe(); return True
                 if keyval == Gdk.KEY_BackSpace:
-                    self.app_settings["shortcuts"][action_key] = [0, 0]; SaveManager.save_settings(self.app_settings)
-                    btn.set_label(self.tr("Disabled")); btn.remove_css_class("accent")
+                    self.app_settings["shortcuts"][action_key] = [0, 0]; save_settings(self.app_settings)
+                    btn.set_label(tr("Disabled")); btn.remove_css_class("accent")
                     btn.remove_controller(ctrl)
                     self._listening_btn = None; self._listening_controller = None
                     return True
@@ -1299,7 +1311,7 @@ class FlameGetManager(Gtk.Application):
                 clean_state = state & valid_mods
                 btn.set_label(get_key_string(keyval, clean_state))
                 if is_modifier: return True 
-                self.app_settings["shortcuts"][action_key] = [keyval, int(clean_state)]; SaveManager.save_settings(self.app_settings)
+                self.app_settings["shortcuts"][action_key] = [keyval, int(clean_state)]; save_settings(self.app_settings)
                 btn.remove_css_class("accent"); btn.remove_controller(ctrl)
                 self._listening_btn = None; self._listening_controller = None
                 return True
@@ -1334,7 +1346,7 @@ class FlameGetManager(Gtk.Application):
             row = Gtk.ListBoxRow()
             box = Gtk.Box(spacing=10); box.set_margin_top(10); box.set_margin_bottom(10); box.set_margin_start(10)
             box.append(Gtk.Image.new_from_icon_name(icon))
-            box.append(Gtk.Label(label=self.tr(name)))
+            box.append(Gtk.Label(label=tr(name)))
             row.set_child(box); row.panel_name = name
             self.set_cursor_for_widget(row, "pointer")
             sidebar.append(row)
@@ -1351,7 +1363,7 @@ class FlameGetManager(Gtk.Application):
         self.apply_cursor_recursive(dialog, "pointer")
         
     def create_settings_label(self, text, markup=""):
-        lbl = Gtk.Label(label=self.tr(text))
+        lbl = Gtk.Label(label=tr(text))
         lbl.set_halign(Gtk.Align.START) 
         lbl.set_valign(Gtk.Align.CENTER)
         lbl.add_css_class("settings-label")
@@ -1367,7 +1379,7 @@ class FlameGetManager(Gtk.Application):
             Gtk.Widget.set_default_direction(Gtk.TextDirection.LTR)
             
         mode = self.app_settings.get("theme_mode", "Dark")
-        SaveManager.load_css(mode)
+        load_css(mode)
         GLib.idle_add(addOn.set_titlebar_theme, self.app_name, self.app_settings.get("theme_mode"))
         display = Gdk.Display.get_default()
 
@@ -1477,7 +1489,7 @@ class FlameGetManager(Gtk.Application):
         self.search_text = text
 
     def add_url_button(self, btn, local_torrent_path=None):
-        self.add_url_dialog = Gtk.Dialog(title=self.tr("New Download"), transient_for=self.window, modal=True)
+        self.add_url_dialog = Gtk.Dialog(title=tr("New Download"), transient_for=self.window, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, self.add_url_dialog.get_title(), self.app_settings.get("theme_mode"))
         if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, self.add_url_dialog.get_title(), "FlameGet")
 
@@ -1502,13 +1514,13 @@ class FlameGetManager(Gtk.Application):
         lbl_url = Gtk.Label(label="URL:", xalign=0)
         self.entry_url = Gtk.Entry()
         self.entry_url.add_css_class("entry")
-        self.entry_url.set_placeholder_text(f"https://example.com/file.zip {self.tr('or any yt_dlp supported Link')}")
+        self.entry_url.set_placeholder_text(f"https://example.com/file.zip {tr('or any yt_dlp supported Link')}")
         self.entry_url.set_hexpand(True)
         
         common_grid.attach(lbl_url, 0, 0, 1, 1)
         common_grid.attach(self.entry_url, 1, 0, 2, 1)
         
-        lbl_dir = Gtk.Label(label=self.tr("Save To:"), xalign=0)
+        lbl_dir = Gtk.Label(label=tr("Save To:"), xalign=0)
         self.entry_dir = Gtk.Entry()
         self.entry_dir.add_css_class("entry")
 
@@ -1517,7 +1529,7 @@ class FlameGetManager(Gtk.Application):
         btn_browse = Gtk.Button(icon_name="xsi-folder-open-symbolic")
         btn_browse.add_css_class("blue-btn")
 
-        btn_browse.set_tooltip_text(self.tr("Choose Directory"))
+        btn_browse.set_tooltip_text(tr("Choose Directory"))
         btn_browse.connect("clicked", self.on_select_folder_clicked)
 
         common_grid.attach(lbl_dir, 0, 1, 1, 1)
@@ -1537,13 +1549,13 @@ class FlameGetManager(Gtk.Application):
 
         grid_std = Gtk.Grid(column_spacing=12, row_spacing=12)
         
-        lbl_name = Gtk.Label(label=f"{self.tr('File Name')}:", xalign=0)
+        lbl_name = Gtk.Label(label=f"{tr('File Name')}:", xalign=0)
         self.entry_name = Gtk.Entry()
         self.entry_name.add_css_class("entry")
-        self.entry_name.set_placeholder_text(f"({self.tr('Auto-detected')})")
+        self.entry_name.set_placeholder_text(f"({tr('Auto-detected')})")
         self.entry_name.set_hexpand(True)
 
-        lbl_seg = Gtk.Label(label=f"{self.tr('Segments')}:", xalign=0)
+        lbl_seg = Gtk.Label(label=f"{tr('Segments')}:", xalign=0)
         self.spin_seg = Gtk.SpinButton.new_with_range(1, 16, 1)
         self.spin_seg.add_css_class("entry")
         self.spin_seg.set_value(8)
@@ -1557,30 +1569,30 @@ class FlameGetManager(Gtk.Application):
 
         grid_yt = Gtk.Grid(column_spacing=12, row_spacing=12)
 
-        lbl_mode = Gtk.Label(label=f"{self.tr('Mode')}:", xalign=0)
+        lbl_mode = Gtk.Label(label=f"{tr('Mode')}:", xalign=0)
         self.dd_mode = Gtk.DropDown.new_from_strings(["Video + Audio", "Audio Only"])
         if self.is_rtl: self.dd_mode.add_css_class("dropmenu-rtl")
         self.dd_mode.set_valign(Gtk.Align.CENTER)
         self.dd_mode.set_hexpand(True)
 
-        lbl_quality = Gtk.Label(label=self.tr("Quality:"), xalign=0)
+        lbl_quality = Gtk.Label(label=tr("Quality:"), xalign=0)
         self.dd_quality = Gtk.DropDown.new_from_strings(["Best Available", "4K", "1080p", "720p", "480p"])
         if self.is_rtl: self.dd_quality.add_css_class("dropmenu-rtl")
         self.dd_quality.set_valign(Gtk.Align.CENTER)
         self.dd_quality.set_hexpand(True)
 
-        lbl_fmt = Gtk.Label(label=self.tr("Container:"), xalign=0)
+        lbl_fmt = Gtk.Label(label=tr("Container:"), xalign=0)
         self.dd_fmt = Gtk.DropDown.new_from_strings(["mp4", "mkv", "webm", "mov", "avi"])
         if self.is_rtl: self.dd_fmt.add_css_class("dropmenu-rtl")
         self.dd_fmt.set_valign(Gtk.Align.CENTER)
         self.dd_fmt.set_hexpand(True)
 
-        self.check_playlist = Gtk.CheckButton(label=self.tr("Download Playlist"))
-        self.check_playlist.set_tooltip_text(self.tr("If the link is a playlist, download all videos"))
+        self.check_playlist = Gtk.CheckButton(label=tr("Download Playlist"))
+        self.check_playlist.set_tooltip_text(tr("If the link is a playlist, download all videos"))
         self.check_playlist.set_active(True)
         
-        self.check_subs = Gtk.CheckButton(label=self.tr("Embed Subtitles"))
-        self.check_thumb = Gtk.CheckButton(label=self.tr("Embed Thumbnail"))
+        self.check_subs = Gtk.CheckButton(label=tr("Embed Subtitles"))
+        self.check_thumb = Gtk.CheckButton(label=tr("Embed Thumbnail"))
 
         check_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         check_box.append(self.check_playlist)
@@ -1588,10 +1600,10 @@ class FlameGetManager(Gtk.Application):
         check_box.append(self.check_thumb)
         check_box.set_valign(Gtk.Align.CENTER) 
         
-        yt_lbl_name = Gtk.Label(label=f"{self.tr('File Name')}:", xalign=0)
+        yt_lbl_name = Gtk.Label(label=f"{tr('File Name')}:", xalign=0)
         self.yt_entry_name = Gtk.Entry()
         self.yt_entry_name.add_css_class("entry")
-        self.yt_entry_name.set_placeholder_text(f"({self.tr('Auto-detected')})")
+        self.yt_entry_name.set_placeholder_text(f"({tr('Auto-detected')})")
         self.yt_entry_name.set_hexpand(True)
         
         grid_yt.attach(yt_lbl_name, 0, 0, 1, 1)
@@ -1612,9 +1624,9 @@ class FlameGetManager(Gtk.Application):
         grid_torrent_prompt = Gtk.Grid(column_spacing=12, row_spacing=12)
         grid_torrent_prompt.set_halign(Gtk.Align.CENTER)
         grid_torrent_prompt.set_valign(Gtk.Align.CENTER)
-        lbl_t_prompt = Gtk.Label(label=self.tr("Torrent Detected."))
+        lbl_t_prompt = Gtk.Label(label=tr("Torrent Detected."))
         lbl_t_prompt.add_css_class("heading")
-        lbl_t_prompt2 = Gtk.Label(label=self.tr("Click 'Process Link' to fetch metadata."))
+        lbl_t_prompt2 = Gtk.Label(label=tr("Click 'Process Link' to fetch metadata."))
         grid_torrent_prompt.attach(lbl_t_prompt, 0, 0, 1, 1)
         grid_torrent_prompt.attach(lbl_t_prompt2, 0, 1, 1, 1)
         self.cached_grids["torrent_prompt"] = grid_torrent_prompt
@@ -1622,10 +1634,10 @@ class FlameGetManager(Gtk.Application):
         self.grid_torrent_meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         
         summary_grid = Gtk.Grid(column_spacing=12, row_spacing=12)
-        self.lbl_meta_name = Gtk.Label(label=self.tr("Retrieving data. Wait a few seconds"), selectable=True)
+        self.lbl_meta_name = Gtk.Label(label=tr("Retrieving data. Wait a few seconds"), selectable=True)
         self.lbl_meta_name.set_hexpand(True)
 
-        self.lbl_meta_size = Gtk.Label(label=self.tr("Size: -"))
+        self.lbl_meta_size = Gtk.Label(label=tr("Size: -"))
         self.lbl_meta_size.set_halign(Gtk.Align.START)
         self.lbl_meta_size.set_hexpand(True)
         summary_grid.attach(self.lbl_meta_name, 0, 0, 2, 1)
@@ -1636,7 +1648,7 @@ class FlameGetManager(Gtk.Application):
         self.expander_files = Gtk.Expander()
         self.expander_files.set_expanded(False)
         self.expander_files.set_sensitive(False)
-        self.lbl_files_expander = Gtk.Label(label=f"{self.tr('Files')} (0)")
+        self.lbl_files_expander = Gtk.Label(label=f"{tr('Files')} (0)")
         self.lbl_files_expander.set_hexpand(True)
         self.lbl_files_expander.set_halign(Gtk.Align.CENTER)
         
@@ -1670,7 +1682,7 @@ class FlameGetManager(Gtk.Application):
 
         tracker_header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         tracker_header_box.set_hexpand(True)
-        self.tracker_label = Gtk.Label(label=self.tr("Show Trackers"))
+        self.tracker_label = Gtk.Label(label=tr("Show Trackers"))
         self.tracker_label.set_hexpand(True)
         self.tracker_label.set_halign(Gtk.Align.START)
         btn_add_tracker = Gtk.Button()
@@ -1680,7 +1692,7 @@ class FlameGetManager(Gtk.Application):
         btn_add_tracker.add_css_class("add-new-tracker-button")
         btn_add_tracker.set_halign(Gtk.Align.END)
 
-        btn_add_tracker.set_tooltip_text(self.tr("Add New Tracker"))
+        btn_add_tracker.set_tooltip_text(tr("Add New Tracker"))
         btn_add_tracker.connect("clicked", self.on_add_tracker_clicked)
 
         tracker_header_box.append(self.tracker_label)
@@ -1720,7 +1732,7 @@ class FlameGetManager(Gtk.Application):
         content_area.append(sep)
         action_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
-        self.expander_schedule = Gtk.Expander(label=self.tr("Schedule Start Time"))
+        self.expander_schedule = Gtk.Expander(label=tr("Schedule Start Time"))
         schedule_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         schedule_box.set_margin_top(15)
         
@@ -1763,7 +1775,7 @@ class FlameGetManager(Gtk.Application):
 
         schedule_box.append(dt_box)
 
-        self.lbl_schedule_info = Gtk.Label(label=self.tr("Download will start immediately."))
+        self.lbl_schedule_info = Gtk.Label(label=tr("Download will start immediately."))
         self.lbl_schedule_info.add_css_class("caption")
         self.lbl_schedule_info.add_css_class("dim-label")
         schedule_box.append(self.lbl_schedule_info)
@@ -1777,12 +1789,12 @@ class FlameGetManager(Gtk.Application):
         
         row_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
 
-        self.btn_queue = Gtk.Button(label=self.tr("Add To Queue"))
+        self.btn_queue = Gtk.Button(label=tr("Add To Queue"))
         self.btn_queue.add_css_class("generic-button")
         self.btn_queue.set_hexpand(True)
         self.btn_queue.connect("clicked", self.on_queue_clicked, self.entry_dir, self.add_url_dialog)
 
-        self.btn_download = Gtk.Button(label=self.tr("Download Now"))
+        self.btn_download = Gtk.Button(label=tr("Download Now"))
         GLib.idle_add(self.btn_download.set_hexpand, True)
         GLib.idle_add(self.btn_download.add_css_class, "green-btn")
         self.btn_download.connect("clicked", self.on_start_download_clicked, self.add_url_dialog, local_torrent_path)
@@ -1792,7 +1804,7 @@ class FlameGetManager(Gtk.Application):
         row_actions.append(self.btn_queue)
         row_actions.append(self.btn_download)
         
-        btn_cancel = Gtk.Button(label=self.tr("Cancel"))
+        btn_cancel = Gtk.Button(label=tr("Cancel"))
         GLib.idle_add(btn_cancel.add_css_class, "btn_cancel")
         btn_cancel.connect("clicked", lambda x: (self.add_url_dialog.destroy(), setattr(self, 'add_url_dialog', None)))
         btn_cancel.set_hexpand(True)
@@ -1975,9 +1987,9 @@ class FlameGetManager(Gtk.Application):
                 self.dialog_stack.set_visible_child_name(target_page)
 
         if is_youtube or is_torrent:
-            GLib.idle_add(self.btn_download.set_label, self.tr("Process Link"))
+            GLib.idle_add(self.btn_download.set_label, tr("Process Link"))
         else:
-            GLib.idle_add(self.btn_download.set_label, self.tr("Download Now"))
+            GLib.idle_add(self.btn_download.set_label, tr("Download Now"))
 
         self.on_url_entry_changed(entry)
         
@@ -2018,7 +2030,7 @@ class FlameGetManager(Gtk.Application):
             self.dialog_stack.remove(self.dialog_stack.get_child_by_name("torrent_prompt"))
             self.dialog_stack.add_named(self.cached_grids["torrent_meta"], "torrent_meta")
             self.dialog_stack.set_visible_child_name("torrent_meta")
-            GLib.idle_add(self.btn_download.set_label, self.tr("Download Now"))
+            GLib.idle_add(self.btn_download.set_label, tr("Download Now"))
         elif mode == "torrent_meta":
             GLib.idle_add(self.btn_download.set_sensitive, True)
             GLib.idle_add(self.btn_queue.set_sensitive, True)
@@ -2036,7 +2048,7 @@ class FlameGetManager(Gtk.Application):
             collect_indices(self.root_node_store)
             
             if not selected_indices:
-                self.show_toast_popup(self.tr("Please select at least one file to download."), color="red_toast")
+                self.show_toast_popup(tr("Please select at least one file to download."), color="red_toast")
                 return
 
             indexes_string = ",".join(selected_indices)
@@ -2058,7 +2070,7 @@ class FlameGetManager(Gtk.Application):
             self.start_download_url(btn, dialog, filename, segments)
         
         if mode != "torrent_prompt":
-            self.show_toast_popup(f"{self.tr("Starting The Downloader Please Wait...")}")
+            self.show_toast_popup(f"{tr("Starting The Downloader Please Wait...")}")
             self.add_url_dialog = None
             dialog.destroy()
 
@@ -2084,7 +2096,7 @@ class FlameGetManager(Gtk.Application):
                 
                 if not local_torrent_path:
                     print("Metadata not found. The torrent might be dead or timeout was too short.")
-                    GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Metadata was not found. Torrent dead or timed out."))
+                    GLib.idle_add(self.lbl_meta_name.set_text, tr("Metadata was not found. Torrent dead or timed out."))
                     return
 
             if os.path.exists(local_torrent_path):
@@ -2093,13 +2105,13 @@ class FlameGetManager(Gtk.Application):
                 print(f"Error: Torrent file not found at {local_torrent_path}")
 
         except subprocess.TimeoutExpired:
-            GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Size: Timeout (Metadata not found)"))
+            GLib.idle_add(self.lbl_meta_name.set_text, tr("Size: Timeout (Metadata not found)"))
             print("The process timed out while fetching metadata.")
         except subprocess.CalledProcessError as e:
-            GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Size: Timeout (Metadata not found)"))
+            GLib.idle_add(self.lbl_meta_name.set_text, tr("Size: Timeout (Metadata not found)"))
             print(f"Aria2c crashed or returned an error: {e}")
         except Exception as e:
-            GLib.idle_add(self.lbl_meta_name.set_text, self.tr("Size: Timeout (Metadata not found)"))
+            GLib.idle_add(self.lbl_meta_name.set_text, tr("Size: Timeout (Metadata not found)"))
             print(f"Metadata error: {e}")
 
     def _download_magnet_metadata(self, url):
@@ -2244,9 +2256,9 @@ class FlameGetManager(Gtk.Application):
         calc_dir_size(self.root_node_store)
         self.update_torrent_counter()
 
-        GLib.idle_add(self.lbl_meta_size.set_text, f"{self.tr("Size:")} {total_size}")
-        GLib.idle_add(self.lbl_meta_name.set_text, f"{self.tr("Name:")} {name}")
-        GLib.idle_add(self.expander_files.set_label, f"{self.tr("Files")} ({files_count})")
+        GLib.idle_add(self.lbl_meta_size.set_text, f"{tr("Size:")} {total_size}")
+        GLib.idle_add(self.lbl_meta_name.set_text, f"{tr("Name:")} {name}")
+        GLib.idle_add(self.expander_files.set_label, f"{tr("Files")} ({files_count})")
         GLib.idle_add(self.expander_files.set_sensitive, True)
         GLib.idle_add(self.expander_files.set_expanded, True)
 
@@ -2275,7 +2287,7 @@ class FlameGetManager(Gtk.Application):
             walk_stats(self.root_node_store)
         
         if hasattr(self, 'lbl_files_expander'):
-            GLib.idle_add(self.lbl_files_expander.set_label, f"{self.tr("Files")} ({selected_files}/{total_files})")
+            GLib.idle_add(self.lbl_files_expander.set_label, f"{tr("Files")} ({selected_files}/{total_files})")
 
     def torrent_parse_size(self, size_str):
         if not size_str: return 0
@@ -2289,7 +2301,7 @@ class FlameGetManager(Gtk.Application):
             return 0
 
     def on_add_tracker_clicked(self, btn):
-        dialog = Gtk.Dialog(title=self.tr("Add Trackers"), transient_for=self.add_url_dialog, modal=True)
+        dialog = Gtk.Dialog(title=tr("Add Trackers"), transient_for=self.add_url_dialog, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
         if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
 
@@ -2301,7 +2313,7 @@ class FlameGetManager(Gtk.Application):
         content.set_margin_top(10); content.set_margin_bottom(10); 
         content.set_margin_start(10); content.set_margin_end(10)
         
-        lbl = Gtk.Label(label=self.tr("Enter Tracker URLs (One per line):"))
+        lbl = Gtk.Label(label=tr("Enter Tracker URLs (One per line):"))
         lbl.set_xalign(0)
 
         scrolled = Gtk.ScrolledWindow()
@@ -2316,7 +2328,7 @@ class FlameGetManager(Gtk.Application):
         
         scrolled.set_child(text_view)
 
-        btn_add = Gtk.Button(label=self.tr("Add Trackers"))
+        btn_add = Gtk.Button(label=tr("Add Trackers"))
         btn_add.add_css_class("green-btn")
         
         def on_confirm(b):
@@ -2354,17 +2366,17 @@ class FlameGetManager(Gtk.Application):
             if added_count > 0:
                 self.update_tracker_count()
                 
-                msg = f"{self.tr("Added")} {added_count} {self.tr("trackers.")}"
+                msg = f"{tr("Added")} {added_count} {tr("trackers.")}"
                 if skipped_count > 0:
-                    msg += f" ({skipped_count} {self.tr("skipped")})"
+                    msg += f" ({skipped_count} {tr("skipped")})"
                 
                 self.show_toast_popup(msg, color="blue_toast")
                 dialog.destroy()
             
             elif skipped_count > 0:
-                self.show_toast_popup(self.tr("Trackers already exist."), color="red_toast")
+                self.show_toast_popup(tr("Trackers already exist."), color="red_toast")
             else:
-                self.show_toast_popup(self.tr("No valid trackers found."), color="red_toast")
+                self.show_toast_popup(tr("No valid trackers found."), color="red_toast")
         
         btn_add.connect("clicked", on_confirm)
         
@@ -2377,11 +2389,11 @@ class FlameGetManager(Gtk.Application):
 
     def update_tracker_count(self):
         count = self.trackers_store.get_n_items()
-        self.tracker_label.set_label(f"{self.tr("Show Trackers")} ({count})")
+        self.tracker_label.set_label(f"{tr("Show Trackers")} ({count})")
 
     def on_select_folder_clicked(self, button):
         dialog = Gtk.FileDialog()
-        dialog.set_title(self.tr("Select Download Folder"))
+        dialog.set_title(tr("Select Download Folder"))
         dialog.set_modal(True)
 
         def on_done(source, result, data=None):
@@ -2510,28 +2522,28 @@ class FlameGetManager(Gtk.Application):
 
         self.add_checkbox_column(column_view, selection_model)
 
-        self.add_column(column_view, self.tr("Name"), 
+        self.add_column(column_view, tr("Name"), 
             self._setup_name, self._bind_name, unbind_func=self._unbind_name, 
             sorter=self.get_custom_sorter("name"), expand=True)
 
-        self.add_column(column_view, self.tr("Size"), 
+        self.add_column(column_view, tr("Size"), 
             self._setup_label, lambda f,i: self._bind_label(f,i,"size"),
             sorter=self.get_custom_sorter("size"), width=100)
 
-        self.add_column(column_view, self.tr("Speed"), 
+        self.add_column(column_view, tr("Speed"), 
             self._setup_label, 
             lambda f,i: self._bind_label(f, i, "speed", "speed-prop"),
             unbind_func=self._unbind_label,
             width=100)
 
-        self.add_column(column_view, self.tr("Status"), 
+        self.add_column(column_view, tr("Status"), 
             self._setup_status, 
             self._bind_status, 
             unbind_func=self._unbind_status,
             width=200,
             sorter=self.get_custom_sorter("status"))
         
-        self.add_column(column_view, self.tr("Date Added"), 
+        self.add_column(column_view, tr("Date Added"), 
             self._setup_label, lambda f,i: self._bind_label(f,i,"date_prop"),
             sorter=self.get_custom_sorter("date"))
 
@@ -2545,7 +2557,7 @@ class FlameGetManager(Gtk.Application):
         columns_list_model = column_view.get_columns()
         for i in range(columns_list_model.get_n_items()):
             col = columns_list_model.get_item(i)
-            if col.get_title() == self.tr(saved_col_name):
+            if col.get_title() == tr(saved_col_name):
                 target_col = col
                 break
         
@@ -2579,9 +2591,9 @@ class FlameGetManager(Gtk.Application):
             full_path = os.path.join(item.file_directory, item.filename)
             if os.path.exists(full_path):
                 self.open_file_direct(full_path)
-                self.show_toast_popup(f"{self.tr("Opening File:")} {item.filename}")
+                self.show_toast_popup(f"{tr("Opening File:")} {item.filename}")
             else:
-                self.show_toast_popup(f"{self.tr("Couldn't Open File:")} {item.filename}", color="red_toast")
+                self.show_toast_popup(f"{tr("Couldn't Open File:")} {item.filename}", color="red_toast")
         elif item.status in ("Paused", "Stopped"):
             self.resume_download(None, self.selection_model)
 
@@ -2598,9 +2610,9 @@ class FlameGetManager(Gtk.Application):
         btn_resume = self.context_menu_btns[4]
         btn_stop   = self.context_menu_btns[5]
 
-        btn_pause.lbl.set_text(self.tr("Pause Download"))
-        btn_resume.lbl.set_text(self.tr("Resume Download"))
-        btn_stop.lbl.set_text(self.tr("Stop Download"))
+        btn_pause.lbl.set_text(tr("Pause Download"))
+        btn_resume.lbl.set_text(tr("Resume Download"))
+        btn_stop.lbl.set_text(tr("Stop Download"))
 
         is_finished = (item.status == "Finished")
         is_downloading = (item.status == "downloading")
@@ -2609,9 +2621,9 @@ class FlameGetManager(Gtk.Application):
         is_paused = item.status == "Paused"
 
         if item.category == "Torrent" and item.finished_downloading:
-            btn_pause.lbl.set_text(self.tr("Pause Seeding"))
-            btn_resume.lbl.set_text(self.tr("Start Seeding"))
-            btn_stop.lbl.set_text(self.tr("Stop Seeding"))
+            btn_pause.lbl.set_text(tr("Pause Seeding"))
+            btn_resume.lbl.set_text(tr("Start Seeding"))
+            btn_stop.lbl.set_text(tr("Stop Seeding"))
             
             btn_pause.set_sensitive(is_seeding)
             btn_resume.set_sensitive(not is_seeding)
@@ -2632,22 +2644,41 @@ class FlameGetManager(Gtk.Application):
         can_stop = is_downloading or is_seeding or is_paused or is_process_running
         btn_stop.set_sensitive(can_stop)
 
-        row_widget = list_item.get_child()
-        click_point = Graphene.Point().init(x, y)
-        success, out_point = row_widget.compute_point(self.overlay, click_point)
-
+        clicked_widget = list_item.get_child()
+        local_point = Graphene.Point().alloc().init(x, y)
+        
+        success, translated_point = clicked_widget.compute_point(self.overlay, local_point)
+        
         if success:
-            rect = Gdk.Rectangle()
-            rect.x = int(out_point.x) + self.app_settings.get("ctx_menu_offsets", {}).get("x", 0)
-            rect.y = int(out_point.y) + self.app_settings.get("ctx_menu_offsets", {}).get("y", 0)
-            rect.width = 1
-            rect.height = 1
+            actual_x = translated_point.x
+            actual_y = translated_point.y
             
-            self.context_popover.set_pointing_to(rect)
-            self.context_popover.popup()
+            _, nat_w, _, _ = self.context_menu_box.measure(Gtk.Orientation.HORIZONTAL, -1)
+            _, nat_h, _, _ = self.context_menu_box.measure(Gtk.Orientation.VERTICAL, -1)
+            
+            total_w = nat_w + self.context_menu_box.get_margin_start() + self.context_menu_box.get_margin_end()
+            total_h = nat_h + self.context_menu_box.get_margin_top() + self.context_menu_box.get_margin_bottom()
+            
+            overlay_w = self.overlay.get_width()
+            overlay_h = self.overlay.get_height()
+            
+            safe_x = actual_x
+            safe_y = actual_y
+            
+            if safe_x + total_w > overlay_w + 20:
+                safe_x = safe_x - 200
+                
+            if safe_y + total_h > overlay_h:
+                safe_y = safe_y - 260
+                
+            safe_x = max(0, safe_x)
+            safe_y = max(0, safe_y)
+            
+            self.context_fixed.move(self.context_menu_box, safe_x, safe_y)
+            self.context_fixed.set_visible(True)
 
     def add_checkbox_column(self, view, selection_model):
-        col = Gtk.ColumnViewColumn(title=self.tr("All"))
+        col = Gtk.ColumnViewColumn(title=tr("All"))
         
         row_factory = Gtk.SignalListItemFactory()
 
@@ -2813,9 +2844,9 @@ class FlameGetManager(Gtk.Application):
             full_path = os.path.join(item.file_directory, item.filename)
             if os.path.exists(item.file_directory):
                 self.show_file_in_folder(full_path)
-                self.show_toast_popup(f"{self.tr("Opening File's Folder...")}")
+                self.show_toast_popup(f"{tr("Opening File's Folder...")}")
             else:
-                self.show_toast_popup(f"{self.tr("Couldn't Open Folder")}", color="red_toast")
+                self.show_toast_popup(f"{tr("Couldn't Open Folder")}", color="red_toast")
 
     def show_file_in_folder(self, full_file_path):
         full_file_path = os.path.normpath(full_file_path)
@@ -2872,11 +2903,11 @@ class FlameGetManager(Gtk.Application):
             can_delete = item.status in ("Paused", "Stopped", "Finished")
             i += 1
         if not can_delete:
-            self.show_toast_popup(f"{self.tr("You Can't Delete Items During a Download. Please Stop The Operation First.")}", color="red_toast")
+            self.show_toast_popup(f"{tr("You Can't Delete Items During a Download. Please Stop The Operation First.")}", color="red_toast")
             return
         count = selection.get_size()
         
-        dialog = Gtk.Dialog(title=self.tr("Delete Confirmation"), transient_for=self.window, modal=True)
+        dialog = Gtk.Dialog(title=tr("Delete Confirmation"), transient_for=self.window, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
         if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
 
@@ -2894,25 +2925,25 @@ class FlameGetManager(Gtk.Application):
         if count == 1:
             idx = selection.get_nth(0)
             item = selection_model.get_model().get_item(idx)
-            Label.set_markup(f'<span size="large">{self.tr("Do you want to delete")} <b>{GLib.markup_escape_text(self.shorten_filename(item.filename, 30))}</b>?</span>')
+            Label.set_markup(f'<span size="large">{tr("Do you want to delete")} <b>{GLib.markup_escape_text(self.shorten_filename(item.filename, 30))}</b>?</span>')
         else:
-            Label.set_markup(f'<span size="large">{self.tr("Do you want to delete")} <b>{count} {self.tr("items")}</b>?</span>')
+            Label.set_markup(f'<span size="large">{tr("Do you want to delete")} <b>{count} {tr("items")}</b>?</span>')
             
         Label.set_hexpand(True)
         box.append(Label)
 
-        confirm_button = Gtk.Button(label=self.tr("Confirm"))
+        confirm_button = Gtk.Button(label=tr("Confirm"))
         confirm_button.add_css_class("generic-button")
         confirm_button.set_hexpand(True)
         
         confirm_button.connect("clicked", lambda *args: self.on_confirm_delete(dialog, selection_model))
 
-        cancel_button = Gtk.Button(label=self.tr("Cancel"))
+        cancel_button = Gtk.Button(label=tr("Cancel"))
         cancel_button.set_hexpand(True)
         cancel_button.add_css_class("btn_cancel")
         cancel_button.connect("clicked", lambda *args: self.on_cancel_responce(dialog))
         
-        self.delete_files_also_check_btn = Gtk.CheckButton(label=self.tr(" Delete Associated Files?"))
+        self.delete_files_also_check_btn = Gtk.CheckButton(label=tr(" Delete Associated Files?"))
         
         if files_too is not None:
             self.delete_files_also_check_btn.set_active(files_too)
@@ -3009,9 +3040,9 @@ class FlameGetManager(Gtk.Application):
                     print(f"Warning: failed to remove {aria2_file}: {e}")
                 
         if i == 1:
-            self.show_toast_popup(f"{self.tr("Deleted Selected File Successfully.")}", color="red_toast")
+            self.show_toast_popup(f"{tr("Deleted Selected File Successfully.")}", color="red_toast")
         else:
-            self.show_toast_popup(f"{self.tr("Deleted Selected Files Successfully.")}", color="red_toast")
+            self.show_toast_popup(f"{tr("Deleted Selected Files Successfully.")}", color="red_toast")
         self.db.conn.commit()
         setattr(self, 'can_delete_dialog', None) 
         GLib.idle_add(self.update_stats_labels)
@@ -3078,7 +3109,7 @@ class FlameGetManager(Gtk.Application):
 
                 subprocess.Popen(cmd, env=worker_env)
                 
-                self.show_toast_popup(f"{self.tr('Scheduled Start:')} {task['filename']}")
+                self.show_toast_popup(f"{tr('Scheduled Start:')} {task['filename']}")
                 
             if due_tasks:
                 GLib.idle_add(self.update_stats_labels)
@@ -3098,9 +3129,9 @@ class FlameGetManager(Gtk.Application):
             cursor.execute("SELECT COUNT(*) FROM downloads WHERE status='Paused'")
             paused = cursor.fetchone()[0]
 
-            self.active_label.set_label(f"{self.tr("Active")}: {active}")
-            self.paused_label.set_label(f"{self.tr("Paused")}: {paused}")
-            self.total_label.set_label(f"{self.tr("Total")}: {total}")
+            self.active_label.set_label(f"{tr("Active")}: {active}")
+            self.paused_label.set_label(f"{tr("Paused")}: {paused}")
+            self.total_label.set_label(f"{tr("Total")}: {total}")
         except Exception as e:
             print(f"Stats update error: {e}")
 
@@ -3228,28 +3259,28 @@ class FlameGetManager(Gtk.Application):
             safe_progress = 0.0
 
         if data.status == "Seeding":
-            markup = f"<span color='#00ACC1'>{self.tr('Seeding')}</span>"
+            markup = f"<span color='#00ACC1'>{tr('Seeding')}</span>"
         
         elif data.status == "Verifying Checksum":
-            markup = f"<span color='#00ACC1'>{self.tr('Verifying Checksum')}</span>"
+            markup = f"<span color='#00ACC1'>{tr('Verifying Checksum')}</span>"
 
         elif data.status == "Scheduled":
-            markup = f"<span color='#fb8c00'>{self.tr('Scheduled')}</span>"
+            markup = f"<span color='#fb8c00'>{tr('Scheduled')}</span>"
             
         elif data.status == "Paused":
             if data.finished_downloading:
-                markup = f"<span color='#fb8c00'>{self.tr('Seeding is Paused')}</span>"
+                markup = f"<span color='#fb8c00'>{tr('Seeding is Paused')}</span>"
             else:
-                markup = f"<span color='#fb8c00'>{self.tr('Paused at')} <b>{safe_progress:.0f}%</b></span>"
+                markup = f"<span color='#fb8c00'>{tr('Paused at')} <b>{safe_progress:.0f}%</b></span>"
                 
         elif data.status == "Stopped":
             if data.finished_downloading:
-                markup = f"<span color='#4CAF50'>{self.tr('Finished')}</span>"
+                markup = f"<span color='#4CAF50'>{tr('Finished')}</span>"
             else:
-                markup = f"<span color='#fb8c00'>{self.tr('Stopped at')} <b>{safe_progress:.0f}%</b></span>"
+                markup = f"<span color='#fb8c00'>{tr('Stopped at')} <b>{safe_progress:.0f}%</b></span>"
                 
         elif data.finished_downloading or data.status == "Finished":
-            markup = f"<span color='#4CAF50'>{self.tr('Finished')}</span>"
+            markup = f"<span color='#4CAF50'>{tr('Finished')}</span>"
 
         if markup is not None:
             stack.set_visible_child_name("label")
@@ -3296,7 +3327,7 @@ class FlameGetManager(Gtk.Application):
             
             name_lbl = vbox.get_first_child()
             name_lbl.set_label(self.shorten_filename(data.filename))
-            vbox.get_last_child().set_label(self.tr(data.category))
+            vbox.get_last_child().set_label(tr(data.category))
             
             icon_name = "xsi-package-x-generic-symbolic"
             
@@ -3491,7 +3522,7 @@ class FlameGetManager(Gtk.Application):
 
     def update_schedule_label(self, *args):
         if not self.expander_schedule.get_expanded():
-            self.lbl_schedule_info.set_text(self.tr("Download will start immediately."))
+            self.lbl_schedule_info.set_text(tr("Download will start immediately."))
             return
 
         try:
@@ -3499,7 +3530,7 @@ class FlameGetManager(Gtk.Application):
             now = time.time()
             
             if ts <= now:
-                self.lbl_schedule_info.set_text(self.tr("Time is in the past. Will start immediately."))
+                self.lbl_schedule_info.set_text(tr("Time is in the past. Will start immediately."))
             else:
                 diff = ts - now
                 mins = int(diff / 60)
@@ -3507,9 +3538,9 @@ class FlameGetManager(Gtk.Application):
                 mins = mins % 60
                 
                 readable_date = time.strftime("%a, %d %b %H:%M", time.localtime(ts))
-                self.lbl_schedule_info.set_text(f"{self.tr('Starts on:')} {readable_date} ({self.tr("in")} {hours}{self.tr("h")} {mins}{self.tr("m")})")
+                self.lbl_schedule_info.set_text(f"{tr('Starts on:')} {readable_date} ({tr("in")} {hours}{tr("h")} {mins}{tr("m")})")
         except:
-            self.lbl_schedule_info.set_text(self.tr("Invalid Date"))
+            self.lbl_schedule_info.set_text(tr("Invalid Date"))
 
     def get_schedule_timestamp(self):
         day = self.spin_day.get_value_as_int()
@@ -3709,9 +3740,9 @@ class FlameGetManager(Gtk.Application):
                 if item.quality_mod:
                     cmd.extend(["--quality", item.quality_mod])
 
-                popup_text = self.tr("Resuming Download:")
+                popup_text = tr("Resuming Download:")
                 if is_torrent: 
-                    popup_text = self.tr("Seeding the Torrent File in The Backgound:")
+                    popup_text = tr("Seeding the Torrent File in The Backgound:")
                     cmd.append("--in_minimize_mode")
 
                 subprocess.Popen(cmd, env=worker_env)
@@ -3820,7 +3851,7 @@ class FlameGetManager(Gtk.Application):
         
         self.app_settings["sort_column"] = title
         self.app_settings["sort_direction"] = direction_int
-        SaveManager.save_settings(self.app_settings)
+        save_settings(self.app_settings)
 
     def get_filename(self, url):
         print(f"got url : {url}")
@@ -4174,13 +4205,13 @@ class FlameGetManager(Gtk.Application):
                 GLib.idle_add(self.btn_download.set_sensitive, True)
                 GLib.idle_add(self.btn_queue.set_sensitive, True)
             elif os.path.isdir(os.path.dirname(full_path)):
-                entry.set_tooltip_text(self.tr("Directory does not exist. It will be created."))
+                entry.set_tooltip_text(tr("Directory does not exist. It will be created."))
                 self.download_folder = full_path
                 GLib.idle_add(self.btn_download.set_sensitive, True)
                 GLib.idle_add(self.btn_queue.set_sensitive, True)
             else:
                 entry.add_css_class("error")
-                self.status_label.set_text(self.tr("Invalid path or parent directory missing."))
+                self.status_label.set_text(tr("Invalid path or parent directory missing."))
                 self.status_label.set_name("red-text")
                 GLib.idle_add(self.btn_download.set_sensitive, True)
                 GLib.idle_add(self.btn_queue.set_sensitive, True)
@@ -4189,11 +4220,11 @@ class FlameGetManager(Gtk.Application):
             entry.add_css_class("error")
             GLib.idle_add(self.btn_download.set_sensitive, False)
             GLib.idle_add(self.btn_queue.set_sensitive, False)
-            entry.set_tooltip_text(f"{self.tr('Invalid path')}: {str(e)}")
+            entry.set_tooltip_text(f"{tr('Invalid path')}: {str(e)}")
 
     def notify_user_about_hls_video(self):
         dialog = Gtk.Window(
-            title=self.tr("HLS Stream Detected"),
+            title=tr("HLS Stream Detected"),
             transient_for=self.window,
             modal=True,
             destroy_with_parent=True
@@ -4205,11 +4236,11 @@ class FlameGetManager(Gtk.Application):
         icon.set_pixel_size(48)
         icon.set_valign(Gtk.Align.START)
 
-        primary_text = f'<b><span size="large">{self.tr("HLS Stream Detected")}</span></b>'
+        primary_text = f'<b><span size="large">{tr("HLS Stream Detected")}</span></b>'
         primary_label = Gtk.Label(label=primary_text, use_markup=True)
         primary_label.set_halign(Gtk.Align.START)
 
-        secondary_text = self.tr("Directly pasting HLS (ending with .m3u8 or .ts) links is not supported.\n\nTo download this video, please open the webpage in your browser and click the <b>FlameGet Extension</b> to catch the stream automatically!")
+        secondary_text = tr("Directly pasting HLS (ending with .m3u8 or .ts) links is not supported.\n\nTo download this video, please open the webpage in your browser and click the <b>FlameGet Extension</b> to catch the stream automatically!")
         secondary_label = Gtk.Label(label=secondary_text, use_markup=True, wrap=True)
         secondary_label.set_halign(Gtk.Align.START)
 
@@ -4716,10 +4747,10 @@ class FlameGetManager(Gtk.Application):
         about.set_program_name("FlameGet")
         about.set_version(FLAMEGET_VERSION) 
         
-        about.set_comments(self.tr("A fast, modern download manager.\n\nIcons provided by the XApp Project under the LGPL-3.0 License."))
+        about.set_comments(tr("A fast, modern download manager.\n\nIcons provided by the XApp Project under the LGPL-3.0 License."))
         
         about.set_website("https://github.com/C-Yassin/flameget")
-        about.set_website_label(self.tr("Visit FlameGet Repository"))
+        about.set_website_label(tr("Visit FlameGet Repository"))
         about.set_logo_icon_name("flameget_about_dialog") 
         
         about.set_license_type(Gtk.License.MIT_X11) 
@@ -4727,11 +4758,11 @@ class FlameGetManager(Gtk.Application):
         about.set_authors(["C-Yassin \nhttps://github.com/C-Yassin"])
         
         about.add_credit_section(
-            self.tr("Icon Design"), 
+            tr("Icon Design"), 
             ["XApp Project (LGPL-3.0)\nhttps://github.com/xapp-project/xapp-symbolic-icons"]
         )
         about.add_credit_section(
-            self.tr("Backend Download Engines"), 
+            tr("Backend Download Engines"), 
             [
                 "aria2 (GPL-2.0)\nhttps://aria2.github.io/",
                 "yt-dlp (The Unlicense)\nhttps://github.com/yt-dlp/yt-dlp",
@@ -4804,7 +4835,7 @@ flask_app = Flask(__name__)
 downloader_script_path = addOn.FireFiles.downloader_script_path
 browser_context_menu_handler_script_path = addOn.FireFiles.browser_context_menu_handler_script_path
 
-app_settings = SaveManager.load_settings()
+app_settings = load_settings()
 
 def notify_main_ui(message, is_error=False):
     try:

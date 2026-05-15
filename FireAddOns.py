@@ -67,61 +67,84 @@ class _FileManager():
         editable_files = ["translations.json", "dark_style.css", "light_style.css", "custom_style.css"]
         
         for filename in editable_files:
-            user_path = os.path.join(self.config_dir, filename)
-            
-            if self.is_compiled:
-                system_path = os.path.join(self.install_dir, "_internal", filename)
-            else:
-                system_path = os.path.join(self.install_dir, filename)
-
-            if not os.path.exists(user_path):
-                if os.path.exists(system_path):
-                    try:
-                        shutil.copy2(system_path, user_path)
-                        print(f"Copied default {filename} to user config.")
-                    except Exception as e:
-                        print(f"Failed to copy {filename}: {e}")
+                user_path = os.path.join(self.config_dir, filename)
+                
+                if self.is_compiled:
+                    system_path = os.path.join(self.install_dir, "_internal", filename)
                 else:
-                    open(user_path, 'a').close()
-                    print(f"Made empty {filename}")
-            
-            else:
-                if not os.path.exists(system_path):
-                    continue
+                    system_path = os.path.join(self.install_dir, filename)
 
-                if filename.endswith(".json"):
-                    try:
-                        if filecmp.cmp(system_path, user_path, shallow=False):
-                            continue 
-                            
-                        with open(system_path, 'r', encoding='utf-8') as sf:
-                            system_data = json.load(sf)
-                        with open(user_path, 'r', encoding='utf-8') as uf:
-                            try:
-                                user_data = json.load(uf)
-                            except json.JSONDecodeError:
-                                user_data = {}
-                        
-                        updated = False
-                        for key, value in system_data.items():
-                            if key not in user_data:
-                                user_data[key] = value
-                                updated = True
-                                
-                        if updated:
-                            with open(user_path, 'w', encoding='utf-8') as uf:
-                                json.dump(user_data, uf, indent=4, ensure_ascii=False)
-                            print(f"Updated {filename} with new translation keys.")
-                    except Exception as e:
-                        print(f"Failed to merge {filename}: {e}")
-
-                elif filename in ["dark_style.css", "light_style.css"]:
-                    try:
-                        if not filecmp.cmp(system_path, user_path, shallow=False):
+                if not os.path.exists(user_path):
+                    if os.path.exists(system_path):
+                        try:
                             shutil.copy2(system_path, user_path)
-                            print(f"Updated {filename} with new system styles.")
-                    except Exception as e:
-                        print(f"Failed to update {filename}: {e}")
+                            print(f"Copied default {filename} to user config.")
+                        except Exception as e:
+                            print(f"Failed to copy {filename}: {e}")
+                    else:
+                        with open(user_path, 'w', encoding='utf-8') as f:
+                            if filename.endswith(".json"):
+                                f.write("{}") 
+                            else:
+                                f.write("")
+                        print(f"Made empty {filename}")
+                
+                else:
+                    if not os.path.exists(system_path):
+                        print(f"WARNING: System file {system_path} not found. Skipping update.")
+                        continue
+
+                    if filename.endswith(".json"):
+                        print(f"Checking {filename} for updates...")
+                        try:
+                            if filecmp.cmp(system_path, user_path, shallow=False):
+                                continue 
+                                
+                            with open(system_path, 'r', encoding='utf-8-sig') as sf:
+                                system_data = json.load(sf)
+                            with open(user_path, 'r', encoding='utf-8-sig') as uf:
+                                try:
+                                    user_data = json.load(uf)
+                                except json.JSONDecodeError:
+                                    user_data = {}
+                            
+                            def sync_dicts(default_dict, user_dict):
+                                has_changes = False
+                                
+                                for k, v in default_dict.items():
+                                    if k not in user_dict:
+                                        user_dict[k] = v
+                                        has_changes = True
+                                    elif isinstance(v, dict) and isinstance(user_dict[k], dict):
+                                        if sync_dicts(v, user_dict[k]):
+                                            has_changes = True
+                                            
+                                keys_to_remove = [k for k in user_dict if k not in default_dict]
+                                for k in keys_to_remove:
+                                    del user_dict[k]
+                                    has_changes = True
+                                    
+                                return has_changes
+
+                            updated = sync_dicts(system_data, user_data)
+                                    
+                            if updated:
+                                with open(user_path, 'w', encoding='utf-8', newline='') as uf:
+                                    json.dump(user_data, uf, indent=4, ensure_ascii=False)
+                                print(f"Synced {filename}: Added new keys and removed obsolete ones.")
+                            else:
+                                print(f"No changes needed for {filename}.")
+                                
+                        except Exception as e:
+                            print(f"Failed to merge {filename}: {e}")
+
+                    elif filename in ["dark_style.css", "light_style.css"]:
+                        try:
+                            if not filecmp.cmp(system_path, user_path, shallow=False):
+                                shutil.copy2(system_path, user_path)
+                                print(f"Updated {filename} with new system styles.")
+                        except Exception as e:
+                            print(f"Failed to update {filename}: {e}")
 
 FireFiles = _FileManager()
 
@@ -293,6 +316,7 @@ def set_titlebar_theme(window_title, theme_str="Dark"):
             
     except Exception as e:
         print(f"DWM API failed: {e}")
+
 
 import os
 import ctypes

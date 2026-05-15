@@ -9,28 +9,20 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib, Gio
 import argparse
 import FireAddOns as addOn
-import SaveManager
+from SaveManager import load_css, load_settings, tr
 
 yt_dlp = addOn.lazy_import("yt_dlp")
 
 # --- CONFIG ---
 downloader_script_path = addOn.FireFiles.downloader_script_path
-translations = SaveManager.load_translations()
-app_settings = SaveManager.load_settings()
-SaveManager.load_css(app_settings.get("theme_mode"))
+app_settings = load_settings()
+load_css(app_settings.get("theme_mode"))
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 worker_type = os.environ.get("FLAMEGET_WORKER")
 if "downloader" == worker_type:
     import downloader
     downloader.main()
     sys.exit(0)
-
-def tr(text):
-    """Simple translation lookup."""
-    lang = app_settings.get("language", "en")
-    if lang in translations and text in translations[lang]:
-        return translations[lang][text]
-    return text
 
 class VideoAnalyzer(Gtk.Application):
     def __init__(self, filename, directory, url, ext=".mp4", audio=False, quality="Best Available", playlist=False, include_subs=False, include_thumb=False):

@@ -21,6 +21,7 @@ def load_translations():
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON: {e}")
         return {"en": {}}
+translations = load_translations()
 
 def load_css(theme=""):
     display = Gdk.Display.get_default() if hasattr(Gdk, "Display") else None
@@ -136,6 +137,8 @@ def load_settings(download_folder=""):
             
     return defaults
 
+settings = load_settings()
+
 def save_settings(app_settings):
     try:
         if not os.path.exists(config_dir):
@@ -146,6 +149,11 @@ def save_settings(app_settings):
     except Exception as e:
         print(f"Failed to save settings: {e}")
 
+def tr( text):
+    lang = settings.get("language", "en")
+    if lang in translations and text in translations[lang]:
+        return translations[lang][text]
+    return text
 
 class DownloadDatabase:
     def __init__(self, db_name="downloads.db"):
