@@ -72,6 +72,16 @@ def load_css(theme=""):
     except Exception as e:
         print(f"CSS Load Error: {e}")
 
+def save_settings(app_settings):
+    try:
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir, exist_ok=True)
+            
+        with open(settings_file, 'w') as f:
+            json.dump(app_settings, f, indent=4)
+    except Exception as e:
+        print(f"Failed to save settings: {e}")
+
 def load_settings(download_folder=""):
     default_css = os.path.join(config_dir, "dark_style.css")
     custom_css = os.path.join(config_dir, "custom_style.css")
@@ -138,17 +148,6 @@ def load_settings(download_folder=""):
     return defaults
 
 settings = load_settings()
-
-def save_settings(app_settings):
-    try:
-        if not os.path.exists(config_dir):
-            os.makedirs(config_dir, exist_ok=True)
-            
-        with open(settings_file, 'w') as f:
-            json.dump(app_settings, f, indent=4)
-    except Exception as e:
-        print(f"Failed to save settings: {e}")
-
 def tr( text):
     lang = settings.get("language", "en")
     if lang in translations and text in translations[lang]:
