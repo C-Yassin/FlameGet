@@ -14,6 +14,7 @@ import hashlib
 from SaveManager import load_css, load_settings, save_settings, tr
 import FireAddOns as addOn
 
+yt_dlp = addOn.lazy_import("yt_dlp")
 pycurl = addOn.lazy_import("pycurl")
 requests = addOn.lazy_import("requests")
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
@@ -25,9 +26,6 @@ else:
 WINDOWS_TRAY_PORT = 18598
 #for the stupid range detection     
 ARIA2_SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
-
-IS_YT_DLP_RUN = "--is_yt_dlp" in sys.argv
-if IS_YT_DLP_RUN: yt_dlp = addOn.lazy_import("yt_dlp")
 
 class TorrentNode(GObject.Object):
     __gtype_name__ = 'TorrentNode'
