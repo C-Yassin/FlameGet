@@ -8,13 +8,12 @@ import threading, random
 import subprocess, socket
 import sys, re, time
 import argparse
-import signal, shutil
+import shutil
 import json, tempfile
 import hashlib
 from SaveManager import load_css, load_settings, save_settings, tr
 import FireAddOns as addOn
 
-yt_dlp = addOn.lazy_import("yt_dlp")
 pycurl = addOn.lazy_import("pycurl")
 requests = addOn.lazy_import("requests")
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
@@ -26,6 +25,9 @@ else:
 WINDOWS_TRAY_PORT = 18598
 #for the stupid range detection     
 ARIA2_SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
+
+IS_YT_DLP_RUN = "--is_yt_dlp" in sys.argv
+if IS_YT_DLP_RUN: yt_dlp = addOn.lazy_import("yt_dlp")
 
 class TorrentNode(GObject.Object):
     __gtype_name__ = 'TorrentNode'
@@ -113,18 +115,6 @@ class TorrentNode(GObject.Object):
 
         if self.parent:
             self.parent.recalculate_state()
-
-
-from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider, PoTokenResponse, register_provider
-@register_provider
-class FlameGetTokenProviderPTP(PoTokenProvider):  
-    PROVIDER_NAME = 'flameget-internal'
-    def is_available(self):
-        return True
-
-    def _real_request_pot(self, request):
-        token = subprocess.check_output([addOn.FireFiles.rustypipe_botguard_path]).decode().strip()
-        return PoTokenResponse(po_token=token)
 
 class DownloadWindow(Gtk.ApplicationWindow):
     def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None):
@@ -239,7 +229,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.part_files = [self.output_file + f"-part{i}" for i in range(self.segments_count)]
         self.lock = threading.Lock()
         self.completed_threads = 0
-        self.threads = []
         self.canDownload = True
         self.pulsing = False
         self.progress_bars = []
@@ -261,9 +250,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.expander = None
 
         self.report_pid()
-        #Ignore this, it's for sudden shutdowns of the application, intended to clear selflock file.... fuuck
-        tray_toggle_system_server = threading.Thread(target=self.start_listener, daemon=True)
-        tray_toggle_system_server.start()
+        threading.Thread(target=self.start_listener, daemon=True).start()
         
         self.connect("close-request", self.on_close_request)
         self.connect("destroy", self.exit)
@@ -272,7 +259,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.set_default_size(650, 350)
         self.set_resizable(False)
         GLib.idle_add(addOn.set_titlebar_theme, self.get_title(), self.app_settings.get("theme_mode"))
-        self.connect("close-request", self.on_close_request)
         self.set_icon_name("io.github.C_Yassin.FlameGet" if is_flatpak_env else "flameget")
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
@@ -295,16 +281,13 @@ class DownloadWindow(Gtk.ApplicationWindow):
         main_box.add_css_class("main_buttons")
         main_box.append(self.stack)
 
-        sql_thread = threading.Thread(target=self.database, daemon=True)
-        sql_thread.start()
-        
-        self.fetch_head_info_thread = threading.Thread(target=self.fetch_head_info, args=(self.url, self.file_size_bytes), daemon=True).start()
+        threading.Thread(target=self.database, daemon=True).start()
+        threading.Thread(target=self.fetch_head_info, args=(self.url, self.file_size_bytes), daemon=True).start()
         
         self.download_button.grab_focus()
         self.apply_cursor_recursive(self, "pointer")
         if self.in_minimize_mode:
             self.toggle_visibility()
-
 
     def on_close_request(self, *args):
         if self.download_started:
@@ -339,10 +322,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.aria_proc.terminate()
             self.aria_proc.wait(timeout=2)
 
-        if hasattr(self, 'yt_dlp_proc'):
-            self.yt_dlp_proc.terminate()
-            self.yt_dlp_proc.wait(timeout=2)
-
         self.pause_download()
 
         if hasattr(self, 'conn'):
@@ -354,10 +333,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             except Exception as e:
                 print(f"Error updating PID on exit: {e}")
         self.destroy()
-
-    def handle_sigterm(self, signum, frame):
-        print(f"Received signal {signum}, exiting...")
-        self.exit()
 
     def get_file_info(self, url):
         if self.download_playlist:
@@ -1584,6 +1559,20 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         return f"{base[:head]}…{base[-tail:]}{ext}"
 
+    def setup_youtube_pot(self):
+        from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider, PoTokenResponse, register_provider
+        
+        @register_provider
+        class FlameGetTokenProviderPTP(PoTokenProvider):  
+            PROVIDER_NAME = 'flameget-internal'
+            
+            def is_available(self):
+                return True
+
+            def _real_request_pot(self, request):
+                token = subprocess.check_output([addOn.FireFiles.rustypipe_botguard_path]).decode().strip()
+                return PoTokenResponse(po_token=token)
+
     def on_filename_changed(self, entry):
         raw_input = entry.get_text().strip()
         
@@ -1762,11 +1751,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.start_time = time.time()
             self.pause_event.set()
             self.cancel_event.clear()
-            self.threads = []
 
-            t = threading.Thread(target=self.download_using_YTDLP)
-            t.start()
-            self.threads.append(t)
+            threading.Thread(target=self.download_using_YTDLP).start()
             return
         if not self.is_torrent:
             if self.download_engine == "aria2":
@@ -1806,20 +1792,15 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.start_time = time.time()
         self.pause_event.set()
         self.cancel_event.clear()
-        self.threads = []
 
         if self.is_supporting_range or self.is_torrent:
             if self.download_engine == "aria2":
-                t = threading.Thread(target=self.download_using_ARIA2)
-                t.start()
-                self.threads.append(t)
+                threading.Thread(target=self.download_using_ARIA2).start()
             else:
                 for i in range(self.segments_count):
                     start = i * self.segment_size
                     end = self.file_size_bytes - 1 if i == self.segments_count - 1 else (start + self.segment_size - 1)
-                    t = threading.Thread(target=self.download_segment, args=(start, end, i))
-                    t.start()
-                    self.threads.append(t)
+                    threading.Thread(target=self.download_segment, args=(start, end, i)).start()
         else:
             for pb in self.progress_bars:
                 self.progress_box.remove(pb)
@@ -1835,13 +1816,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.part_files.append(self.output_file)
             
             if self.download_engine == "aria2":
-                t = threading.Thread(target=self.download_using_ARIA2)
-                t.start()
-                self.threads.append(t)
+               threading.Thread(target=self.download_using_ARIA2).start()
             else:
-                t = threading.Thread(target=self.download_single_thread)
-                t.start()
-                self.threads.append(t)
+               threading.Thread(target=self.download_single_thread).start()
 
     def download_single_thread(self):        
         self.connections_spin.set_sensitive(False)
@@ -2085,9 +2062,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             print(f"Aria2 Connection Failed! Last error was: {repr(last_error)}")
             return None
 
-        t = threading.Thread(target=self._init_aria_download, args=(connect_aria,), daemon=True)
-        t.start()
-        self.threads.append(t)
+        threading.Thread(target=self._init_aria_download, args=(connect_aria,), daemon=True).start()
 
     def _init_aria_download(self, connect_func):
         self.aria_client = connect_func()
@@ -2636,6 +2611,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             
         }
         if self.include_thumb:
+            self.setup_youtube_pot()
             ydl_opts['writethumbnail'] = True
             ydl_opts['postprocessors'].append({
                 'key': 'FFmpegThumbnailsConvertor',
@@ -2744,8 +2720,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         GLib.idle_add(self.status_label.set_text, tr("Verifying Checksum..."))
         
-        t = threading.Thread(target=self._run_sha256_calc, args=(target_hash,))
-        t.start()
+        threading.Thread(target=self._run_sha256_calc, args=(target_hash,)).start()
 
     def _run_sha256_calc(self, target_hash):
         file_path = os.path.join(self.download_folder, self.FileName)
@@ -2858,8 +2833,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.progress_box.set_visible(False)
         self.est_time_label.set_visible(False)
         self.status_label.set_text(tr("Finishing up..."))
-        merge_thread = threading.Thread(target=self.start_merge_thread)
-        merge_thread.start()
+        threading.Thread(target=self.start_merge_thread).start()
 
     def on_download_finished(self):
         self.is_completed = True
@@ -2963,12 +2937,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.pause_button.set_label(tr("Stop Seeding"))
             self.status_label.set_text(tr("Started Seeding..."))
             
-            self.threads.clear()
             self.completed_threads = 0
 
-            t = threading.Thread(target=self.download_using_ARIA2)
-            t.start()
-            self.threads.append(t)
+            threading.Thread(target=self.download_using_ARIA2).start()
 
     def on_pause_clicked(self, button):
         if self.pause_event.is_set():
@@ -2998,16 +2969,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.status_label.set_text(tr("Downloading..."))
             self.download_started = True
             
-            self.threads.clear()
             self.completed_threads = 0
             if self.is_yt_dlp:
-                t = threading.Thread(target=self.download_using_YTDLP)
-                t.start()
-                self.threads.append(t)
+                threading.Thread(target=self.download_using_YTDLP).start()
             elif self.download_engine == "aria2":
-                t = threading.Thread(target=self.download_using_ARIA2)
-                t.start()
-                self.threads.append(t)
+                threading.Thread(target=self.download_using_ARIA2).start()
             else:
                 for i in range(self.segments_count):
                     part_path = self.part_files[i]
@@ -3026,9 +2992,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
                     start = original_start + downloaded
                     if start <= end:
-                        t = threading.Thread(target=self.resume_download_segment, args=(start, end, i))
-                        t.start()
-                        self.threads.append(t)
+                        threading.Thread(target=self.resume_download_segment, args=(start, end, i)).start()
             GLib.timeout_add(100, lambda: self.show_pause_button("Pause"))
 
     def show_pause_button(self, stat):
@@ -3396,8 +3360,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         print(f"Listener error: {e}")
                         break
 
-        t = threading.Thread(target=_listen_loop, daemon=True)
-        t.start()
+        threading.Thread(target=_listen_loop, daemon=True).start()
 
     def report_pid(self, can_delete="", msg=""):        
         try:
