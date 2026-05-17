@@ -417,18 +417,22 @@ class FlameGetManager(Gtk.Application):
         else:
             self.window.present()
         
-        self.check_and_install_dependencies(self.window)
         self.apply_cursor_recursive(self.window, "pointer")
         GLib.idle_add(self.update_stats_labels)
         GLib.timeout_add(200, self.on_global_tick)
         
-        self.start_server()
-        self.start_tray_subprocess()
-
         if len(sys.argv) > 1:
             arg = sys.argv[1]
             if arg.startswith("magnet:?") or arg.endswith(".torrent"):
                 GLib.timeout_add(500, self.handle_external_url, arg)
+        
+        GLib.timeout_add(500, self.start_delayed_services)
+
+    def start_delayed_services(self):
+        self.check_and_install_dependencies(self.window)
+        self.start_server()
+        self.start_tray_subprocess()
+        return False
 
     def on_file_drop(self, target, value, x, y):
         GLib.idle_add(self.drop_box.set_visible, False)
@@ -3120,27 +3124,39 @@ class FlameGetManager(Gtk.Application):
     def update_stats_labels(self):
         try:
             cursor = self.db.conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM downloads")
-            total = cursor.fetchone()[0]
+            
+            cursor.execute("""
+                SELECT 
+                    COUNT(*), 
+                    SUM(status = 'downloading'), 
+                    SUM(status = 'Paused') 
+                FROM downloads
+            """)
+            
+            row = cursor.fetchone()
+            
+            total = row[0] or 0
+            active = row[1] or 0
+            paused = row[2] or 0
 
-            cursor.execute("SELECT COUNT(*) FROM downloads WHERE status='downloading'")
-            active = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM downloads WHERE status='Paused'")
-            paused = cursor.fetchone()[0]
-
-            self.active_label.set_label(f"{tr("Active")}: {active}")
-            self.paused_label.set_label(f"{tr("Paused")}: {paused}")
-            self.total_label.set_label(f"{tr("Total")}: {total}")
+            GLib.idle_add(self.active_label.set_label, f"{tr('Active')}: {active}")
+            GLib.idle_add(self.paused_label.set_label, f"{tr('Paused')}: {paused}")
+            GLib.idle_add(self.total_label.set_label, f"{tr('Total')}: {total}")
+            
         except Exception as e:
             print(f"Stats update error: {e}")
 
     def refresh_store(self, store, category_filter, selection_model):
+        guard_name = f"_is_refreshing_{category_filter}"
+        if getattr(self, guard_name, False):
+            return True
+
         visible_child = self.stack.get_visible_child_name()
         if visible_child != category_filter:
             return True
 
         rows = self.fetch_data(category_filter)
+        
         if self.selection_model == selection_model:
             self.update_buttons_state()
 
@@ -3148,29 +3164,42 @@ class FlameGetManager(Gtk.Application):
             rows = [r for r in rows if self.search_text in r['filename'].lower()]
 
         cache = self.store_caches.get(category_filter)
-        seen_ids = set()
+        
+        setattr(self, guard_name, True)
 
-        for row in rows:
-            rid = row['id']
-            seen_ids.add(rid)
+        def process_batch(start_idx, seen_ids, batch_size=20):
+            end_idx = min(start_idx + batch_size, len(rows))
+            
+            for i in range(start_idx, end_idx):
+                row = rows[i]
+                rid = row['id']
+                seen_ids.add(rid)
 
-            item = None
-            if rid in cache:
-                item = cache[rid]
-                item.update_data(row)
+                if rid in cache:
+                    item = cache[rid]
+                    item.update_data(row)
+                else:
+                    item = DownloadItem(row)
+                    cache[rid] = item
+                    store.append(item)
+
+            if end_idx < len(rows):
+                GLib.idle_add(process_batch, end_idx, seen_ids)
+                return False
             else:
-                item = DownloadItem(row)
-                cache[rid] = item
-                store.append(item)
-
-        if store.get_n_items() != len(seen_ids):
-            for i in reversed(range(store.get_n_items())):
-                item = store.get_item(i)
-                if item.id not in seen_ids:
-                    if item.id in cache:
-                        del cache[item.id]
-                    store.remove(i)
+                if store.get_n_items() != len(seen_ids):
+                    for i in reversed(range(store.get_n_items())):
+                        item = store.get_item(i)
+                        if item.id not in seen_ids:
+                            if item.id in cache:
+                                del cache[item.id]
+                            store.remove(i)
                 
+                setattr(self, guard_name, False)
+                return False
+
+        GLib.idle_add(process_batch, 0, set())
+
         return True
 
     def fetch_data(self, cat):
@@ -3379,7 +3408,6 @@ class FlameGetManager(Gtk.Application):
         stack = Gtk.Stack()
         stack.set_hexpand(True)
         stack.set_halign(Gtk.Align.FILL)
-        stack.set_vexpand(True)
         lbl = Gtk.Label(xalign=0)
         lbl.set_hexpand(True)
         lbl.set_halign(Gtk.Align.CENTER)
@@ -3390,10 +3418,8 @@ class FlameGetManager(Gtk.Application):
         bar = Gtk.ProgressBar()
         bar.set_hexpand(True)
         bar.set_halign(Gtk.Align.FILL)
-        bar.set_valign(Gtk.Align.CENTER)
         plbl = Gtk.Label()
         plbl.set_halign(Gtk.Align.CENTER)
-        plbl.set_valign(Gtk.Align.CENTER)
         plbl.set_name("percent_label")
         overlay.set_child(bar)
         overlay.add_overlay(plbl)
@@ -3765,6 +3791,8 @@ class FlameGetManager(Gtk.Application):
             if item: 
                 items_to_process.append(item)
 
+        cursor = self.db.conn.cursor()
+
         for item in items_to_process:
             if item.finished_downloading and item.category != "Torrent":
                 continue
@@ -3779,9 +3807,11 @@ class FlameGetManager(Gtk.Application):
 
             try:
                 if os.name != 'nt':
-                    downloader_sock = f"{"\0" if is_flatpak_env else ""}flameget_dl_{pid}{"" if is_flatpak_env else ".sock"}"
+                    downloader_sock = f"{'\0' if is_flatpak_env else ''}flameget_dl_{pid}{'' if is_flatpak_env else '.sock'}"
                 else:
                     downloader_sock = os.path.join(addOn.UNITS.RUNTIME_DIR, f"flameget_dl_{pid}.sock")
+
+                new_status = "Stopped" if kill else "Paused"
 
                 if kill:
                     print(f"Stopping PID {pid} for {item.filename}")
@@ -3789,7 +3819,6 @@ class FlameGetManager(Gtk.Application):
                         self.send_command("stop", target_socket=downloader_sock)
                     else:
                         os.kill(pid, signal.SIGTERM)
-                        
                 else:
                     if item.status != "Paused":
                         print(f"Pausing PID {pid} for {item.filename}")
@@ -3798,18 +3827,26 @@ class FlameGetManager(Gtk.Application):
                                 self.send_command("pause", target_socket=downloader_sock)
                             else: 
                                 self.send_command("stop", target_socket=downloader_sock)
+                                new_status = "Stopped"
                         else:
                             if HAS_SIGUSR1:
                                 print(f"Pausing (SIGUSR1) PID {pid} for {item.filename}")
                                 os.kill(pid, signal.SIGUSR1)
                             else:
                                 os.kill(pid, signal.SIGTERM) 
+                                new_status = "Stopped"
+                
+                cursor.execute("UPDATE downloads SET status = ? WHERE id = ?", (new_status, item.id))
+                
+                item.status = new_status
+                item.notify("status-prop")
                         
             except ProcessLookupError:
                 pass
             except Exception as e:
                 print(f"Failed to signal PID {pid}: {e}")
         
+        self.db.conn.commit()
         GLib.idle_add(self.update_stats_labels)
 
     def show_toast_popup(self, message, duration=3000, color="green_toast"):
