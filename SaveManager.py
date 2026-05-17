@@ -1,6 +1,6 @@
 import os
 import json
-import sqlite3
+import sqlite3, threading
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Gio
@@ -164,25 +164,27 @@ class DownloadDatabase:
         self.create_table()
 
     def clean_startup(self):
-        try:
-            cursor = self.conn.cursor()
-            
-            cursor.execute("""
-                UPDATE downloads 
-                SET status = 'Stopped'
-                WHERE status IN ('downloading', 'Paused', 'Verifying Checksum')
-            """)
-            
-            cursor.execute("""
-                UPDATE downloads 
-                SET status = 'Finished'
-                WHERE status = 'Seeding'
-            """)
-            
-            self.conn.commit()
-            print("Cleaned up interrupted downloads and seeds.")
-        except Exception as e:
-            print(f"Startup cleanup failed: {e}")
+        def _background_clean():
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    UPDATE downloads 
+                    SET status = 'Stopped'
+                    WHERE status IN ('downloading', 'Paused', 'Verifying Checksum')
+                """)
+                
+                cursor.execute("""
+                    UPDATE downloads 
+                    SET status = 'Finished'
+                    WHERE status = 'Seeding'
+                """)
+                
+                self.conn.commit()
+                print("Cleaned up interrupted downloads and seeds (in background).")
+            except Exception as e:
+                print(f"Startup cleanup failed: {e}")
+
+        threading.Thread(target=_background_clean, daemon=True).start()
 
     def create_table(self):
         cursor = self.conn.cursor()
