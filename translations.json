@@ -213,7 +213,11 @@
         "Copied to clipboard!": "Copié dans le presse-papiers !",
         "If checked, seeding torrents will be disabled.": "Si coché, le partage des torrents sera désactivé.",
         "Disable Seeding": "Désactiver le partage",
-        "Check For Updates": "Vérifier les mises à jour"
+        "Check For Updates": "Vérifier les mises à jour",
+        "File was successfully moved!": "Le fichier a été déplacé avec succès !",
+        "Grab and drag anywhere": "Saisissez et glissez n'importe où",
+        "Drag to a folder or Desktop": "Faites glisser vers un dossier ou le bureau",
+        "File copied to destination.": "Fichier copié vers la destination."
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -429,7 +433,11 @@
         "Copied to clipboard!": "¡Copiado al portapapeles!",
         "If checked, seeding torrents will be disabled.": "Si se marca, la siembra de torrents se desactivará.",
         "Disable Seeding": "Desactivar siembra",
-        "Check For Updates": "Buscar actualizaciones"
+        "Check For Updates": "Buscar actualizaciones",
+        "File was successfully moved!": "¡El archivo se movió con éxito!",
+        "Grab and drag anywhere": "Agarre y arrastre a cualquier lugar",
+        "Drag to a folder or Desktop": "Arrastre a una carpeta o al escritorio",
+        "File copied to destination.": "Archivo copiado al destino."
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -645,7 +653,11 @@
         "Copied to clipboard!": "Скопировано в буфер обмена!",
         "If checked, seeding torrents will be disabled.": "Если отмечено, раздача торрентов будет отключена.",
         "Disable Seeding": "Отключить раздачу",
-        "Check For Updates": "Проверить обновления"
+        "Check For Updates": "Проверить обновления",
+        "File was successfully moved!": "Файл успешно перемещен!",
+        "Grab and drag anywhere": "Хватайте и перетаскивайте куда угодно",
+        "Drag to a folder or Desktop": "Перетащите в папку или на рабочий стол",
+        "File copied to destination.": "Файл скопирован в место назначения."
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -861,6 +873,10 @@
         "Copied to clipboard!": "تم النسخ إلى الحافظة!",
         "If checked, seeding torrents will be disabled.": "إذا تم تحديده، سيتم تعطيل توزيع التورنت.",
         "Disable Seeding": "تعطيل التوزيع",
-        "Check For Updates": "التحقق من التحديثات"
+        "Check For Updates": "التحقق من التحديثات",
+        "File was successfully moved!": "تم نقل الملف بنجاح!",
+        "Grab and drag anywhere": "امسك واسحب لأي مكان",
+        "Drag to a folder or Desktop": "اسحب إلى مجلد أو إلى سطح المكتب",
+        "File copied to destination.": "تم نسخ الملف إلى الوجهة."
     }
 }

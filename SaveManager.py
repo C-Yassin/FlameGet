@@ -105,7 +105,7 @@ def load_settings(download_folder=""):
         "enable_toasts": True,
         "chk_has_borders": True,
         "enable_integration": True,
-        "ctx_menu_offsets": {"x": 100, "y": 0},
+        "ctx_menu_offsets": {"x": 0, "y": 0},
         "start_in_minimize_mode": False,
         "auto_start": False,
         "global_speed_limit": "0",

@@ -1580,7 +1580,7 @@ class FlameGetManager(Gtk.Application):
         self.dd_mode.set_hexpand(True)
 
         lbl_quality = Gtk.Label(label=tr("Quality:"), xalign=0)
-        self.dd_quality = Gtk.DropDown.new_from_strings(["Best Available", "4K", "1080p", "720p", "480p"])
+        self.dd_quality = Gtk.DropDown.new_from_strings(["Best Available", "4K", "1080p", "720p", "480p", "360p", "240p", "144p"])
         if self.is_rtl: self.dd_quality.add_css_class("dropmenu-rtl")
         self.dd_quality.set_valign(Gtk.Align.CENTER)
         self.dd_quality.set_hexpand(True)
@@ -1950,7 +1950,7 @@ class FlameGetManager(Gtk.Application):
         video_formats = ["mp4", "mkv", "webm", "mov", "avi"]
 
         audio_qualities = ["Best Available", "High", "Medium", "low"]
-        video_qualities = ["Best Available", "4K", "1080p", "720p", "480p"]
+        video_qualities = ["Best Available", "4K", "1080p", "720p", "480p", "360p", "240p", "144p"]
 
         if selected == 1:
             self.dd_fmt.set_model(Gtk.StringList.new(audio_formats))
@@ -2654,8 +2654,8 @@ class FlameGetManager(Gtk.Application):
         success, translated_point = clicked_widget.compute_point(self.overlay, local_point)
         
         if success:
-            actual_x = translated_point.x
-            actual_y = translated_point.y
+            safe_x = translated_point.x + self.app_settings["ctx_menu_offsets"]["x"]
+            safe_y = translated_point.y + self.app_settings["ctx_menu_offsets"]["y"]
             
             _, nat_w, _, _ = self.context_menu_box.measure(Gtk.Orientation.HORIZONTAL, -1)
             _, nat_h, _, _ = self.context_menu_box.measure(Gtk.Orientation.VERTICAL, -1)
@@ -2665,9 +2665,6 @@ class FlameGetManager(Gtk.Application):
             
             overlay_w = self.overlay.get_width()
             overlay_h = self.overlay.get_height()
-            
-            safe_x = actual_x
-            safe_y = actual_y
             
             if safe_x + total_w > overlay_w + 20:
                 safe_x = safe_x - 200
@@ -3203,9 +3200,12 @@ class FlameGetManager(Gtk.Application):
         return True
 
     def fetch_data(self, cat):
-        if cat in ["Finished", "Unfinished"]:
+        if cat == "Finished":
             all_rows = self.db.get_downloads("All")
-            return [r for r in all_rows if (r[4] == "Finished") == (cat == "Finished")]
+            return [r for r in all_rows if r['status'] == "Finished"]
+        elif cat == "Unfinished":
+            all_rows = self.db.get_downloads("All")
+            return [r for r in all_rows if r['status'] in ["downloading", "Stopped", "Paused"]]
         elif cat == "Torrents":
             return self.db.get_downloads("Torrent")
         elif cat == "All":
@@ -3946,7 +3946,7 @@ class FlameGetManager(Gtk.Application):
                 if quality_mod == "Best Available":
                     ydl_opts['format'] = "bestvideo+bestaudio/best"
                 else:
-                    resolution_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480}
+                    resolution_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
                     target_height = resolution_map.get(quality_mod, quality_mod)
                     ydl_opts['format'] = f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]"
 

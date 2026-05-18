@@ -358,7 +358,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     if self.quality_mod == "Best Available":
                         ydl_opts['format'] = 'bestvideo+bestaudio/best'
                     else:
-                        resolution_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480}
+                        resolution_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
                         if self.quality_mod in resolution_map:
                             self.quality_mod = resolution_map[self.quality_mod]
                         ydl_opts['format'] = f"bestvideo[height<={self.quality_mod}]+bestaudio/best[height<={self.quality_mod}]"
@@ -1529,9 +1529,20 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.openFile_button.set_hexpand(True)
         self.openFile_button.set_visible(False)
         self.openFile_button.connect("clicked", self.open_file)
+        self.dragFile_button = Gtk.Button(icon_name="xsi-list-drag-handle-symbolic") 
+        self.dragFile_button.add_css_class("generic-button")
+        self.dragFile_button.set_tooltip_text(tr("Grab and drag anywhere"))
+        self.dragFile_button.set_visible(False)
+        
+        drag_source = Gtk.DragSource.new()
+        drag_source.set_actions(Gdk.DragAction.COPY | Gdk.DragAction.MOVE)
+        drag_source.connect("prepare", self.on_drag_prepare)
+        drag_source.connect("drag-end", self.on_drag_end)
+        self.dragFile_button.add_controller(drag_source)
 
         button_box.append(self.download_button)
         button_box.append(self.openFile_button)
+        button_box.append(self.dragFile_button)
         button_box.append(self.pause_button)
         button_box.append(self.cancel_button)
 
@@ -1539,23 +1550,35 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.on_filename_changed(self.editFileName_entry)
         return box
 
-    def shorten_filename(self, name: str, max_len: int = 60) -> str:
-        if len(name) <= max_len:
-            return name
+    def on_drag_prepare(self, drag_source, x, y):
+        file_path = self.output_file 
+        
+        if file_path and os.path.exists(file_path):
+            gfile = Gio.File.new_for_path(file_path)
+            
+            if hasattr(self, 'file_monitor') and self.file_monitor:
+                self.file_monitor.cancel()
+                
+            self.file_monitor = gfile.monitor_file(Gio.FileMonitorFlags.NONE, None)
+            self.file_monitor.connect("changed", self.on_file_system_changed)
 
-        base, ext = os.path.splitext(name)
+            file_list = Gdk.FileList.new_from_list([gfile])
+            return Gdk.ContentProvider.new_for_value(file_list)
+            
+        return None
+    def on_file_system_changed(self, monitor, file, other_file, event_type):
+        if event_type == Gio.FileMonitorEvent.DELETED:
+            GLib.idle_add(self.openFile_button.set_sensitive, False)
+            GLib.idle_add(self.openFile_button.set_label, tr("File was successfully moved!"))
+            GLib.idle_add(self.dragFile_button.set_sensitive, False)
+            self.file_monitor.cancel()
+            self.file_monitor = None
 
-        if not ext:
-            return name[: max_len - 1] + "…"
-
-        keep = max_len - len(ext) - 1 
-        if keep <= 0:
-            return "…" + ext
-
-        head = keep // 2
-        tail = keep - head
-
-        return f"{base[:head]}…{base[-tail:]}{ext}"
+    def on_drag_end(self, drag_source, drag, delete_data):
+        if self.output_file and not os.path.exists(self.output_file):
+            self.openFile_button.set_sensitive(False)
+            self.openFile_button.set_text(tr("File was successfully moved!"))
+            self.dragFile_button.set_sensitive(False)
 
     def setup_youtube_pot(self):
         from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider, PoTokenResponse, register_provider
@@ -2256,6 +2279,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         GLib.idle_add(self.download_button.set_visible, False)
                         GLib.idle_add(self.cancel_button.set_visible, False)
                         GLib.idle_add(self.openFile_button.set_visible, True)
+                        GLib.idle_add(self.dragFile_button.set_visible, True)
 
                 else:
                     self.speed_str = self.current_download.download_speed_string() 
@@ -2664,7 +2688,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 if self.quality_mod == "Best Available":
                     fmt = "bestvideo+bestaudio/best"
                 else:
-                    res_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480}
+                    res_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
                     res = res_map.get(self.quality_mod, self.quality_mod)
                     fmt = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]"
 
@@ -2851,6 +2875,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 os.remove(path)
 
         GLib.idle_add(self.openFile_button.set_visible, True)
+        GLib.idle_add(self.dragFile_button.set_visible, True)
         self.update_download("Finished", "--", "--", "--", finished_downloading=True)
         
         if self.app_settings.get("notifications"):

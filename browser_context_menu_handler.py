@@ -124,7 +124,7 @@ class VideoAnalyzer(Gtk.Application):
             if safe_quality == "Best Available":
                 ydl_opts['format'] = "bestvideo+bestaudio/best"
             else:
-                resolution_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480}
+                resolution_map = {"4K": 2160, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
                 target_height = resolution_map.get(safe_quality, 1080)
                 ydl_opts['format'] = f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]"
 
@@ -289,7 +289,7 @@ class VideoAnalyzer(Gtk.Application):
         # --- Row 6: Quality ---
         grid.attach(Gtk.Label(label=tr("Quality:"), halign=Gtk.Align.START), 0, row, 1, 1)
         
-        self.quality_model = Gtk.StringList.new(["Best Available", "4K", "1080p", "720p", "480p"])
+        self.quality_model = Gtk.StringList.new(["Best Available", "4K", "1080p", "720p", "480p", "360p", "240p", "144p"])
         self.dd_quality = Gtk.DropDown.new(model=self.quality_model, expression=None)
         
         self.dd_quality.set_hexpand(True)
@@ -306,7 +306,7 @@ class VideoAnalyzer(Gtk.Application):
         
         self.on_type_changed(self.dd_type, None)
         audio_qualities = ["Best Available", "High", "Medium", "low"]
-        video_qualities = ["Best Available", "4K", "1080p", "720p", "480p"]
+        video_qualities = ["Best Available", "4K", "1080p", "720p", "480p", "360p", "240p", "144p"]
         selected_quality = audio_qualities if self.is_audio else video_qualities
         
         if self.quality in selected_quality:
@@ -438,7 +438,7 @@ class VideoAnalyzer(Gtk.Application):
         video_formats = ["mp4", "mkv", "webm", "mov", "avi"]
 
         audio_qualities = ["Best Available", "High", "Medium", "low"]
-        video_qualities = ["Best Available", "4K", "1080p", "720p", "480p"]
+        video_qualities = ["Best Available", "4K", "1080p", "720p", "480p", "360p", "240p", "144p"]
 
         if selected == 1:
             self.dd_fmt.set_model(Gtk.StringList.new(audio_formats))
