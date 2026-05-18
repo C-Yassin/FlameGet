@@ -13,7 +13,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib
 
-FLAMEGET_VERSION = "v1.2"
+FLAMEGET_VERSION = "v1.3"
 REPO = "C-Yassin/FlameGet"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 
