@@ -4164,7 +4164,7 @@ class FlameGetManager(Gtk.Application):
             try:
                 action_word = "enable" if enable else "disable"
                 bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-                command_args = ['io.github.C_Yassin.FlameGet', '--start-minimized']
+                command_args = ['start-flameget', '--start-minimized']
 
                 options = {
                     'autostart': GLib.Variant('b', enable), 
