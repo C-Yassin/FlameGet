@@ -4163,14 +4163,13 @@ class FlameGetManager(Gtk.Application):
         if is_flatpak_env:
             try:
                 action_word = "enable" if enable else "disable"
-                
-                print(f"Requesting to {action_word} Flatpak Autostart...")
-                
                 bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+                command_args = ['io.github.C_Yassin.FlameGet', '--start-minimized']
 
                 options = {
                     'autostart': GLib.Variant('b', enable), 
-                    'background': GLib.Variant('b', True) 
+                    'background': GLib.Variant('b', True),
+                    'commandline': GLib.Variant('as', command_args) 
                 }
                 options_variant = GLib.Variant('a{sv}', options)
 
@@ -4848,10 +4847,6 @@ def main():
     if is_minimized:
         sys.argv.remove("--start-minimized")
     app.start_minimized = is_minimized
-    
-    initial_url = None
-    if len(sys.argv) > 1:
-        initial_url = sys.argv[1]
     
     app.run([sys.argv[0]])
     
