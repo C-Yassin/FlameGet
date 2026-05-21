@@ -217,7 +217,15 @@
         "File was successfully moved!": "Le fichier a été déplacé avec succès !",
         "Grab and drag anywhere": "Saisissez et glissez n'importe où",
         "Drag to a folder or Desktop": "Faites glisser vers un dossier ou le bureau",
-        "File copied to destination.": "Fichier copié vers la destination."
+        "File copied to destination.": "Fichier copié vers la destination.",
+        "Verify SHA256 Checksum:": "Vérifier la somme de contrôle SHA256 :",
+        "On Completion:": "À la fin :",
+        "Use Global Setting": "Utiliser le paramètre global",
+        "Do Nothing": "Ne rien faire",
+        "Shutdown System": "Éteindre le système",
+        "Restart System": "Redémarrer le système",
+        "Suspend System": "Mettre en veille le système",
+        "Run Custom Command": "Exécuter une commande personnalisée"
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -437,7 +445,15 @@
         "File was successfully moved!": "¡El archivo se movió con éxito!",
         "Grab and drag anywhere": "Agarre y arrastre a cualquier lugar",
         "Drag to a folder or Desktop": "Arrastre a una carpeta o al escritorio",
-        "File copied to destination.": "Archivo copiado al destino."
+        "File copied to destination.": "Archivo copiado al destino.",
+        "Verify SHA256 Checksum:": "Verificar suma de comprobación SHA256:",
+        "On Completion:": "Al finalizar:",
+        "Use Global Setting": "Usar configuración global",
+        "Do Nothing": "No hacer nada",
+        "Shutdown System": "Apagar el sistema",
+        "Restart System": "Reiniciar el sistema",
+        "Suspend System": "Suspender el sistema",
+        "Run Custom Command": "Ejecutar comando personalizado"
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -657,7 +673,15 @@
         "File was successfully moved!": "Файл успешно перемещен!",
         "Grab and drag anywhere": "Хватайте и перетаскивайте куда угодно",
         "Drag to a folder or Desktop": "Перетащите в папку или на рабочий стол",
-        "File copied to destination.": "Файл скопирован в место назначения."
+        "File copied to destination.": "Файл скопирован в место назначения.",
+        "Verify SHA256 Checksum:": "Проверить контрольную сумму SHA256:",
+        "On Completion:": "По завершении:",
+        "Use Global Setting": "Использовать глобальные настройки",
+        "Do Nothing": "Ничего не делать",
+        "Shutdown System": "Выключить систему",
+        "Restart System": "Перезагрузить систему",
+        "Suspend System": "Перейти в спящий режим",
+        "Run Custom Command": "Выполнить пользовательскую команду"
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -877,6 +901,14 @@
         "File was successfully moved!": "تم نقل الملف بنجاح!",
         "Grab and drag anywhere": "امسك واسحب لأي مكان",
         "Drag to a folder or Desktop": "اسحب إلى مجلد أو إلى سطح المكتب",
-        "File copied to destination.": "تم نسخ الملف إلى الوجهة."
+        "File copied to destination.": "تم نسخ الملف إلى الوجهة.",
+        "Verify SHA256 Checksum:": "التحقق من المجموع الاختباري SHA256:",
+        "On Completion:": "عند الاكتمال:",
+        "Use Global Setting": "استخدام الإعداد العام",
+        "Do Nothing": "لا تفعل شيئاً",
+        "Shutdown System": "إيقاف تشغيل النظام",
+        "Restart System": "إعادة تشغيل النظام",
+        "Suspend System": "وضع السكون للنظام",
+        "Run Custom Command": "تشغيل أمر مخصص"
     }
 }
