@@ -3142,6 +3142,8 @@ class FlameGetManager(Gtk.Application):
             
         except Exception as e:
             print(f"Stats update error: {e}")
+        
+        return False
 
     def refresh_store(self, store, category_filter, selection_model):
         guard_name = f"_is_refreshing_{category_filter}"
@@ -3864,6 +3866,7 @@ class FlameGetManager(Gtk.Application):
         
         self.overlay.add_overlay(t_box)
         self.current_toast = t_box
+        return False
 
     def on_sort_changed(self, sorter, change, column_view):
         if self.is_programmatic_sort:
@@ -4587,12 +4590,14 @@ class FlameGetManager(Gtk.Application):
         self.entry_url.set_text(url)
         
         self.on_url_input_changed(self.entry_url)
+        return False
 
     def toggle_window(self, *args):
         if self.window.is_visible():
             self.window.set_visible(False)
         else:
             self.window.set_visible(True)
+        return False
 
     def on_window_close_request(self, win):
         if self.tray_process and self.tray_process.poll() is None:
