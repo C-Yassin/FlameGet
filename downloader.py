@@ -1239,17 +1239,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.last_segment_size = self.file_size_bytes - (self.segment_size * (self.segments_count - 1))
         self.part_files = [self.output_file + f"-part{i}" for i in range(self.segments_count)]
         if self.download_engine == "curl":
-            for pb in self.progress_bars:
-                self.progress_box.remove(pb)
-            self.progress_bars.clear()
-            for i in range(self.segments_count):
-                pb = Gtk.ProgressBar()
-                pb.set_show_text(False)
-                pb.set_hexpand(True)
-                if i != 0:
-                    pb.add_css_class("segment-line")
-                self.progress_bars.append(pb)
-                self.progress_box.append(pb)
+            GLib.idle_add(self.rebuild_progress_bar)
+
             css_provider = Gtk.CssProvider()
             if self.segments_count in (8, 9, 10):
                 css_data = {
@@ -1487,25 +1478,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.est_time_label.set_ellipsize(Pango.EllipsizeMode.END)
 
         self.est_time_label.set_lines(1) 
-        self.est_time_label.set_markup(f"{tr('Downloaded:')} <b>--:--/--:--</b> | Speed: <b>--:--</b> | ETA: <b>--:--</b>")
+        self.est_time_label.set_markup(f"{tr('Downloaded:')} <b>--:--/--:--</b> | {tr("Speed")}: <b>--:--</b> | ETA: <b>--:--</b>")
         self.est_time_label.set_visible(False)
         box.append(self.est_time_label)
         self.progress_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        if self.download_engine == "aria2":
-            pb = Gtk.ProgressBar()
-            pb.set_show_text(False)
-            pb.set_hexpand(False)
-            self.progress_bars.append(pb)
-            self.progress_box.append(pb)
-        else:
-             for i in range(self.segments_count):
-                pb = Gtk.ProgressBar()
-                pb.set_show_text(False)
-                pb.set_hexpand(False)
-                if i != 0:
-                    pb.add_css_class("segment-line")
-                self.progress_bars.append(pb)
-                self.progress_box.append(pb)
+        GLib.idle_add(self.rebuild_progress_bar)
 
         self.progress_box.set_visible(False)
         box.append(self.progress_box)
@@ -1522,7 +1499,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.cancel_button.add_css_class("btn_cancel")
         self.cancel_button.set_hexpand(True)
         self.cancel_button.set_visible(False)
-        self.cancel_button.connect("clicked", lambda *args : GLib.idle_add(self.confirm_cancelation))
+        self.cancel_button.connect("clicked", self.confirm_cancelation)
 
         self.openFile_button = Gtk.Button(label=tr("Open File"))
         self.openFile_button.add_css_class("green-btn")
@@ -1566,6 +1543,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             return Gdk.ContentProvider.new_for_value(file_list)
             
         return None
+        
     def on_file_system_changed(self, monitor, file, other_file, event_type):
         if event_type == Gio.FileMonitorEvent.DELETED:
             GLib.idle_add(self.openFile_button.set_sensitive, False)
@@ -1823,15 +1801,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     end = self.file_size_bytes - 1 if i == self.segments_count - 1 else (start + self.segment_size - 1)
                     threading.Thread(target=self.download_segment, args=(start, end, i)).start()
         else:
-            for pb in self.progress_bars:
-                self.progress_box.remove(pb)
-            self.progress_bars.clear()
-            
-            pb = Gtk.ProgressBar()
-            pb.set_show_text(False)
-            pb.set_hexpand(True)
-            self.progress_bars.append(pb)
-            self.progress_box.append(pb)
+            GLib.idle_add(self.rebuild_progress_bar)
 
             self.part_files.clear()
             self.part_files.append(self.output_file)
@@ -1840,6 +1810,29 @@ class DownloadWindow(Gtk.ApplicationWindow):
                threading.Thread(target=self.download_using_ARIA2).start()
             else:
                threading.Thread(target=self.download_single_thread).start()
+
+    def rebuild_progress_bar(self):
+        for pb in self.progress_bars: 
+            self.progress_box.remove(pb)
+        self.progress_bars.clear()
+
+        def create_pb(add_divider):
+            pb = Gtk.ProgressBar()
+            pb.set_show_text(False)
+            pb.set_hexpand(True)
+            if add_divider:
+                pb.add_css_class("segment-line")
+            
+            self.progress_bars.append(pb)
+            self.progress_box.append(pb)
+
+        if self.download_engine == "curl":
+            for i in range(self.segments_count):
+                create_pb(add_divider=(i != 0))
+        else: 
+            create_pb(add_divider=False)
+            
+        return False
 
     def download_single_thread(self):        
         self.connections_spin.set_sensitive(False)
@@ -1912,7 +1905,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             
     def resume_download_segment(self, start, end, index):
         if not self.is_connected():
-            self.reset_ui()
+            GLib.idle_add(self.reset_ui)
             GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
             GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
             print("No internet connection. Please reconnect")
@@ -1971,16 +1964,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
     #fuck you curl (jk)!
     def download_using_ARIA2(self):
         self.connections_spin.set_sensitive(False)
-
-        for pb in self.progress_bars:
-            self.progress_box.remove(pb)
-        self.progress_bars.clear()
-
-        pb = Gtk.ProgressBar()
-        pb.set_show_text(False)
-        pb.set_hexpand(True)
-        self.progress_bars.append(pb)
-        self.progress_box.append(pb)
+        GLib.idle_add(self.rebuild_progress_bar)
         GLib.idle_add(self.progress_bars[0].set_fraction, float(self.progress) /100)
         found = False
         while not found:
@@ -2127,8 +2111,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         self.est_time_label.set_markup,
                         f"<span font_features='tnum=1'>"
                         f"{tr('Downloaded:')} <b>{addOn.parse_size(current_size)}/{addOn.parse_size(total_size)}</b> | "
-                        f"{tr('Progress:')} <b>{start_progress}%</b> | "
-                        f"{tr('Speed:')} <b>--</b> | "
+                        f"{tr('Progress')}: <b>{start_progress}%</b> | "
+                        f"{tr('Speed')}: <b>--</b> | "
                         f"ETA: <b>{self.eta_str}</b>"
                         f"</span>"
                     )
@@ -2152,16 +2136,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             UI_speed = ""
             UI_size_str = ""
             start_val = 0
-            for pb in self.progress_bars:
-                if pb.get_parent() == self.progress_box:
-                    self.progress_box.remove(pb)
-            self.progress_bars.clear()
-            
-            pb = Gtk.ProgressBar()
-            pb.set_show_text(False)
-            pb.set_hexpand(True)
-            self.progress_bars.append(pb)
-            self.progress_box.append(pb)
+            GLib.idle_add(self.rebuild_progress_bar)
             start_val = 0
             try:
                 start_val = float(self.progress) / 100.0
@@ -2172,7 +2147,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.target_fraction = start_val
             new_target = 0
             self.animation_source_id = None
-            GLib.idle_add(pb.set_fraction, self.current_fraction)
+            GLib.idle_add(self.progress_bars[0].set_fraction, self.current_fraction)
 
             GLib.idle_add(self.cancel_button.set_label, tr("Cancel"))
 
@@ -2303,7 +2278,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         print(f"Aria2 Error: {self.current_download.error_message}")
                         GLib.idle_add(self.status_label.set_text, tr("Error Occurred"))
                         def set_error_ui():
-                            self.reset_ui()
+                            GLib.idle_add(self.reset_ui)
                             GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
                             self.download_button.set_label(tr("Retry"))
                         GLib.idle_add(set_error_ui)
@@ -2371,8 +2346,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
                                 self.est_time_label.set_markup,
                                 f"<span font_features='tnum=1'>"
                                 f"{tr('Downloaded:')} <b>{UI_size_str}/{self.UI_total_size}</b> | "
-                                f"{tr('Progress:')} <b>{self.progress:.0f}%</b> | "
-                                f"{tr('Speed:')} <b>{UI_speed}</b> | "
+                                f"{tr('Progress')}: <b>{self.progress:.0f}%</b> | "
+                                f"{tr('Speed')}: <b>{UI_speed}</b> | "
                                 f"ETA: <b>{self.eta_str}</b>"
                                 f"</span>"
                             )
@@ -2386,7 +2361,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         UI_size_str, UI_speed = self.get_parsed_UI()
                         GLib.idle_add(
                             self.est_time_label.set_markup,
-                            f"{tr('Downloaded:')} <b><span font_features='tnum=1'>{UI_size_str}</span></b>| {tr('Speed:')} <b><span font_features='tnum=1'>{UI_speed}</span></b> | ETA: <b>--:--</b>"
+                            f"{tr('Downloaded:')} <b><span font_features='tnum=1'>{UI_size_str}</span></b>| {tr('Speed')}: <b><span font_features='tnum=1'>{UI_speed}</span></b> | ETA: <b>--:--</b>"
                         )
                 time.sleep(0.1)
 
@@ -2506,16 +2481,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
     def download_using_YTDLP(self):
         self.connections_spin.set_sensitive(False)
-        for pb in self.progress_bars:
-            if pb.get_parent() == self.progress_box:
-                self.progress_box.remove(pb)
-        self.progress_bars.clear()
-        
-        pb = Gtk.ProgressBar()
-        pb.set_show_text(False)
-        pb.set_hexpand(True)
-        self.progress_bars.append(pb)
-        self.progress_box.append(pb)
+        GLib.idle_add(self.rebuild_progress_bar)
         start_val = 0
         try:
             start_val = float(self.progress) / 100.0
@@ -2525,7 +2491,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.current_fraction = start_val
         self.target_fraction = start_val
         self.animation_source_id = None
-        pb.set_fraction(self.current_fraction)
+        GLib.idle_add(self.progress_bars[0].set_fraction, self.current_fraction)
         base_name = os.path.splitext(self.FileName)[0]
         target_ext = os.path.splitext(self.FileName)[1].replace(".", "").lower()
         if not target_ext: target_ext = "mp4"
@@ -2782,7 +2748,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         return url
 
     def handle_disconnect(self):
-        self.reset_ui()
+        GLib.idle_add(self.reset_ui)
         GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
         GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
         print("No internet connection. Please reconnect")
@@ -2795,6 +2761,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 self.merge_segments()
         else:
             GLib.idle_add(self.on_download_finished)
+        
+        return False
 
     def start_pulsing(self):
         self.pulsing = True
@@ -2913,15 +2881,15 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.exit()
         
         self.trigger_post_download_action()
-
+        return False
 
     def calculate_required_window_width(self):
         # this is weird i know, but it fixes a weird issue with flatpak and users with small screens, the bug cuts-out the label text..
         dummy_text = (
             f"<span font_features='tnum=1'>"
             f"{tr('Downloaded:')} <b>999.99MB/999.99MB</b> | "
-            f"{tr('Progress:')} <b>100%</b> | "
-            f"{tr('Speed:')} <b>999.99MB/s</b> | "
+            f"{tr('Progress')}: <b>100%</b> | "
+            f"{tr('Speed')}: <b>999.99MB/s</b> | "
             f"ETA: <b>99:99:99</b>"
             f"</span>"
         )
@@ -3017,7 +2985,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     if start <= end:
                         threading.Thread(target=self.resume_download_segment, args=(start, end, i)).start()
             GLib.timeout_add(100, lambda: self.show_pause_button("Pause"))
-
+    
+        return False
+    
     def show_pause_button(self, stat):
         self.pause_button.set_label(tr(stat))
         self.pause_button.set_sensitive(True)
@@ -3036,6 +3006,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.cancel_button.set_visible(False)
         self.progress_box.set_visible(False)
         self.est_time_label.set_visible(False)
+        return False
 
     def calculate_time(self, downloaded):
         elapsed = time.time() - self.start_time
@@ -3214,6 +3185,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
         dialog.set_child(box)
         dialog.set_visible(True)
         self.apply_cursor_recursive(dialog, "pointer")
+        
+        return False
 
     def on_confirm_cancelation_response(self, dialog):
         self.cancel_event.set()
@@ -3276,7 +3249,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM downloads WHERE id = ?", (self.download_id,))
         self.conn.commit()
-        self.reset_ui()
+        GLib.idle_add(self.reset_ui)
         dialog.destroy()
         self.exit()
 
