@@ -4889,7 +4889,6 @@ def notify_main_ui(message, is_error=False):
                 s.sendall(cmd)
     except Exception:
         pass
-import re
 
 def secure_unicode_filename(filename):
     if not filename:
