@@ -318,10 +318,12 @@ columnview header > button {
 .ascending{
     -gtk-icon-source: -gtk-icontheme("xsi-pan-up-symbolic");
     color: @blue;
+    margin: 5px;
 }
 .descending{
     -gtk-icon-source: -gtk-icontheme("xsi-pan-down-symbolic");
     color: @red;
+    margin: 5px;
 }
 /* Match Header separators to Row separators when enabled */
 columnview.separators header > button {

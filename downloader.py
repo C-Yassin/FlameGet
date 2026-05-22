@@ -6,7 +6,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gdk, GLib, Gio, Pango, GObject
 import threading, random
 import subprocess, socket
-import sys, re, time
+import sys, re, time, signal
 import argparse
 import shutil
 import json, tempfile
@@ -234,6 +234,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.limit_speed = speed_limit
         self.lock_file = ""
         self.download_button = Gtk.Button(label=tr("Download"))
+        self.did_download_button_get_clicked = False
         self.download_button.set_hexpand(True)
         self.download_button.add_css_class("green-btn")
         self.download_button.connect("clicked", self.on_download_clicked)
@@ -286,6 +287,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.apply_cursor_recursive(self, "pointer")
         if self.in_minimize_mode:
             self.toggle_visibility()
+        
+        signal.signal(signal.SIGUSR1, lambda signum, frame: GLib.idle_add(self.on_pause_clicked, None))
 
     def on_close_request(self, *args):
         if self.download_started:
@@ -318,18 +321,20 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         if hasattr(self, 'aria_proc'):
             self.aria_proc.terminate()
-            self.aria_proc.wait(timeout=2)
 
         self.pause_download()
 
         if hasattr(self, 'conn'):
             try:
                 cursor = self.conn.cursor()
-                cursor.execute("UPDATE downloads SET pid = -1 WHERE id = ?", (self.download_id,))
+                if not self.did_download_button_get_clicked: cursor.execute("DELETE FROM downloads WHERE id = ?", (self.download_id,))
+                else: cursor.execute("UPDATE downloads SET pid = -1 WHERE id = ?", (self.download_id,))
                 self.conn.commit()
+                
                 print(f"Database: Marked PID as -1 for Download ID {self.download_id}")
             except Exception as e:
                 print(f"Error updating PID on exit: {e}")
+
         self.destroy()
 
     def get_file_info(self, url):
@@ -1027,7 +1032,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         self.create_db_entry()
         if self.auto_start:
-            GLib.idle_add(self.on_download_clicked,"*_*")
+            GLib.idle_add(self.on_download_clicked, None)
         return False
 
     def create_db_entry(self):
@@ -1312,7 +1317,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             GLib.idle_add(entry.set_text,ascii_digits_only)
             GLib.idle_add(entry.set_position,len(ascii_digits_only))
         self.entry_locked = False
-
     def build_download_view(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10, margin_bottom=10, margin_start=20, margin_end=20)
         box.set_size_request(-1, -1)
@@ -1683,6 +1687,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if not self.canDownload:
             self.status_label.set_text(tr("Fix filename before downloading."))
             return
+
         self.folder_entry.remove_css_class("error")
         self.folder_entry.remove_css_class("success")
 
@@ -1733,9 +1738,10 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 # wtf! how did you even get here!
                 self.status_label.set_label(tr("File is Already Downloading!"))
                 self.status_label.set_name("red-text")
-                return
+                return False
             
             self.download_started = True
+            self.did_download_button_get_clicked = True
             self.status_label.set_name("")
             self.is_canceled = False
             self.status_label.set_text(tr("Downloading Video..."))
@@ -1752,18 +1758,18 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.cancel_event.clear()
 
             threading.Thread(target=self.download_using_YTDLP).start()
-            return
+            return False
         if not self.is_torrent:
             if self.download_engine == "aria2":
                 if os.path.exists(self.lock_file) or (os.path.exists(self.output_file) and os.path.getsize(self.output_file) >= self.file_size_bytes):
                     self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{tr("File already exists.")}</span></b>')
                     self.on_shake(self.editFileName_entry)
-                    return
+                    return False
             else:
                 if os.path.exists(self.lock_file) or os.path.exists(self.output_file):
                     self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{tr("File already exists.")}</span></b>')
                     self.on_shake(self.editFileName_entry)
-                    return
+                    return False
 
         # TO fix a really stupid bug, fucking create a lock file
         self.lock_file = self.output_file + '.lock'
@@ -1810,6 +1816,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
                threading.Thread(target=self.download_using_ARIA2).start()
             else:
                threading.Thread(target=self.download_single_thread).start()
+
+        return False
 
     def rebuild_progress_bar(self):
         for pb in self.progress_bars: 
@@ -2682,11 +2690,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
         except Exception as e:
             print(f"Critical Error: {e}")
         
-        threading.Thread(
-            target=addOn._delete_active_part_worker, 
-            args=(self.FileName, self.download_folder),
-            daemon=False
-        ).start()
+        if not self.is_paused:
+            threading.Thread(
+                target=addOn._delete_active_part_worker, 
+                args=(self.FileName, self.download_folder),
+                daemon=False
+            ).start()
 
     def _animate_progress(self):
         diff = self.target_fraction - self.current_fraction
@@ -3131,7 +3140,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         except Exception as e:
             print(f"DB Update Error: {e}")
 
-    def confirm_cancelation(self):
+    def confirm_cancelation(self, button):
         dialog = Gtk.Dialog(title=tr("Cancel Confirmation"), transient_for=self, modal=True)
         dialog.set_default_size(400, 125)
         dialog.set_resizable(False)

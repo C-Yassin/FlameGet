@@ -225,7 +225,14 @@
         "Shutdown System": "Éteindre le système",
         "Restart System": "Redémarrer le système",
         "Suspend System": "Mettre en veille le système",
-        "Run Custom Command": "Exécuter une commande personnalisée"
+        "Run Custom Command": "Exécuter une commande personnalisée",
+        "Shortcuts": "Raccourcis",
+        "Full path to file": "Chemin d'accès complet au fichier",
+        "Filename only": "Nom du fichier uniquement",
+        "Folder path only": "Chemin du dossier uniquement",
+        "Download URL": "URL de téléchargement",
+        "Size in bytes": "Taille en octets",
+        "Variables you can use:": "Variables utilisables :"
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -289,7 +296,7 @@
         "Download Completed.": "Descarga completada.",
         "Error:": "Error:",
         "No internet connection. Please reconnect": "Sin conexión a internet. Por favor reconecte",
-        "Error durante YouTube download": "Error durante la descarga de YouTube",
+        "Error during YouTube download": "Error durante la descarga de YouTube",
         "Converting...": "Convirtiendo...",
         "Downloading:": "Descargando:",
         "Item": "Elemento",
@@ -394,7 +401,7 @@
         "File not found for verification": "Archivo no encontrado para verificación",
         "Checksum Verified": "Suma de comprobación verificada",
         "Checksum Mismatch": "Error en suma de comprobación",
-        "Error durante verification": "Error durante la verificación",
+        "Error during verification": "Error durante la verificación",
         "Scheduled Start:": "Inicio programado:",
         "Select All / None": "Seleccionar Todo / Ninguno",
         "Metadata was not found. The torrent might be dead or timeout was too short": "Metadatos no encontrados. El torrent podría estar inactivo o el tiempo de espera fue demasiado corto",
@@ -453,7 +460,14 @@
         "Shutdown System": "Apagar el sistema",
         "Restart System": "Reiniciar el sistema",
         "Suspend System": "Suspender el sistema",
-        "Run Custom Command": "Ejecutar comando personalizado"
+        "Run Custom Command": "Ejecutar comando personalizado",
+        "Shortcuts": "Atajos",
+        "Full path to file": "Ruta completa del archivo",
+        "Filename only": "Solo nombre del archivo",
+        "Folder path only": "Solo ruta de la carpeta",
+        "Download URL": "URL de descarga",
+        "Size in bytes": "Tamaño en bytes",
+        "Variables you can use:": "Variables que puede usar:"
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -681,7 +695,14 @@
         "Shutdown System": "Выключить систему",
         "Restart System": "Перезагрузить систему",
         "Suspend System": "Перейти в спящий режим",
-        "Run Custom Command": "Выполнить пользовательскую команду"
+        "Run Custom Command": "Выполнить пользовательскую команду",
+        "Shortcuts": "Ярлыки",
+        "Full path to file": "Полный путь к файлу",
+        "Filename only": "Только имя файла",
+        "Folder path only": "Только путь к папке",
+        "Download URL": "URL загрузки",
+        "Size in bytes": "Размер в байтах",
+        "Variables you can use:": "Переменные, которые можно использовать:"
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -909,6 +930,13 @@
         "Shutdown System": "إيقاف تشغيل النظام",
         "Restart System": "إعادة تشغيل النظام",
         "Suspend System": "وضع السكون للنظام",
-        "Run Custom Command": "تشغيل أمر مخصص"
+        "Run Custom Command": "تشغيل أمر مخصص",
+        "Shortcuts": "الاختصارات",
+        "Full path to file": "المسار الكامل للملف",
+        "Filename only": "اسم الملف فقط",
+        "Folder path only": "مسار المجلد فقط",
+        "Download URL": "رابط التحميل",
+        "Size in bytes": "الحجم بالبايت",
+        "Variables you can use:": "المتغيرات التي يمكنك استخدامها:"
     }
 }

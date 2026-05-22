@@ -3801,6 +3801,7 @@ class FlameGetManager(Gtk.Application):
 
             try:
                 pid = int(item.pid)
+                lock_file = os.path.join(item.file_directory, item.filename) + '.lock'
             except (ValueError, TypeError):
                 continue
 
@@ -3842,6 +3843,7 @@ class FlameGetManager(Gtk.Application):
                 
                 item.status = new_status
                 item.notify("status-prop")
+                if os.path.exists(lock_file): os.remove(lock_file)
                         
             except ProcessLookupError:
                 pass
@@ -3874,10 +3876,6 @@ class FlameGetManager(Gtk.Application):
 
         main_sorter = column_view.get_sorter()
         
-        if not hasattr(main_sorter, "get_primary_sort_column"):
-            print("Warning: Saving sort state requires GTK 4.10+")
-            return
-
         col = main_sorter.get_primary_sort_column()
         if not col:
             return
@@ -3886,7 +3884,6 @@ class FlameGetManager(Gtk.Application):
         
         direction_int = 0 if order == Gtk.SortType.ASCENDING else 1
         title = col.get_title()
-
         print(f"Saving Sort: {title} ({'Desc' if direction_int == 1 else 'Asc'})")
         
         self.app_settings["sort_column"] = title
@@ -4862,9 +4859,9 @@ def main():
         except Exception:
             pass
 
+# [ THE SERVER FOR THE BROWSER EXTENSION ]
 
 from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename 
 from waitress import serve
 
 flask_app = Flask(__name__)
@@ -4892,6 +4889,16 @@ def notify_main_ui(message, is_error=False):
                 s.sendall(cmd)
     except Exception:
         pass
+import re
+
+def secure_unicode_filename(filename):
+    if not filename:
+        return "download.dat"
+        
+    filename = filename.replace('/', '_').replace('\\', '_')
+    filename = re.sub(r'[^\w\s.\-()\[\],!\'&]', '', filename)
+    filename = filename.strip(' .')
+    return filename if filename else "download.dat"
 
 @flask_app.after_request
 def add_cors_headers(response):
@@ -4970,11 +4977,8 @@ def handle_download():
         
     url = data.get("url")
     raw_name = data.get("filename")
-    if raw_name:
-        raw_name = os.path.basename(raw_name)
-
-    filename = secure_filename(raw_name or "download.dat")
-    
+    if raw_name: raw_name = os.path.basename(raw_name)
+    filename = secure_unicode_filename(raw_name)
     raw_size = data.get("fileSize")
     try:
         size_str = str(int(raw_size)) if raw_size is not None and int(raw_size) >= 0 else "0"
