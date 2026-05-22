@@ -2968,6 +2968,15 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.pause_button.set_label(tr("Updating..."))
             self.status_label.set_text(tr("Downloading..."))
             self.download_started = True
+            self.is_canceled = False
+            self.editFileName_entry.set_sensitive(False)
+            self.folder_entry.set_sensitive(False)
+            self.download_button.set_visible(False)
+            self.select_folder_button.set_sensitive(False)
+            self.cancel_button.set_visible(True)
+            self.progress_box.set_visible(True)
+            self.est_time_label.set_visible(True)
+            self.pause_button.set_visible(True)
             
             self.completed_threads = 0
             if self.is_yt_dlp:
