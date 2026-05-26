@@ -1690,7 +1690,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         self.folder_entry.remove_css_class("error")
         self.folder_entry.remove_css_class("success")
-
+        self.did_download_button_get_clicked = True
+        
         if self.is_torrent:
             selected_indices = []
             self.expander.set_sensitive(False)
@@ -1741,7 +1742,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 return False
             
             self.download_started = True
-            self.did_download_button_get_clicked = True
             self.status_label.set_name("")
             self.is_canceled = False
             self.status_label.set_text(tr("Downloading Video..."))
