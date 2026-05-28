@@ -506,7 +506,6 @@ class VideoAnalyzer(Gtk.Application):
             cmd.append("--include_thumb")
 
         cmd.append("--is_yt_dlp")
-
         print("Launching:", " ".join(cmd))
         
         subprocess.Popen(cmd, env=worker_env)
@@ -526,6 +525,7 @@ def main():
     parser.add_argument("--playlist", action="store_true", help="Download entire playlist")
     parser.add_argument("--include_subs", action="store_true", default=False, help="Download subtitles")
     parser.add_argument("--include_thumb", action="store_true", default=False, help="Download video thumbnail")
+
     args, _ = parser.parse_known_args()
     if not args.filename or args.filename.strip() == "":
         filename = "video_download"

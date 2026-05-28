@@ -32,7 +32,7 @@ class _FileManager():
         os.makedirs(self.data_dir, exist_ok=True)
 
         self.db_file = os.path.join(self.data_dir, "downloads.db")
-        self.db = DownloadDatabase(db_name=self.db_file)
+        self.db = self.create_db()
         
         self.is_compiled = getattr(sys, 'frozen', False) or "__compiled__" in globals()
         
@@ -64,8 +64,14 @@ class _FileManager():
         icon_theme = Gtk.IconTheme.get_for_display(display)
         icon_theme.add_search_path(self.icons_dir)
         
-        editable_files = ["translations.json", "dark_style.css", "light_style.css", "custom_style.css"]
+        self.setup_settings()
         
+    def create_db(self):
+        return DownloadDatabase(db_name=self.db_file)
+    
+    def setup_settings(self):
+        editable_files = ["translations.json", "dark_style.css", "light_style.css", "custom_style.css"]
+
         for filename in editable_files:
                 user_path = os.path.join(self.config_dir, filename)
                 

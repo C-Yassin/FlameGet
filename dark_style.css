@@ -225,6 +225,9 @@ menubutton > button:active{
 .navigation-sidebar row.Torrents-label {
     color: @cyan;
 }
+.navigation-sidebar row.danger-label {
+    color: @orange;
+}
 /* Sidebar Item (Hover) */
 .navigation-sidebar row:hover {
     background-color: @hover;
@@ -432,6 +435,7 @@ progress {
     font-size: 13px;
     color: white;
 }
+/*
 checkbutton{
     background-image: none;
 }
@@ -449,6 +453,8 @@ checkbutton label:disabled{
 checkbutton:hover check {
     background-color: alpha(@blue, .1);    
 }
+*/
+
 /* ==========================================================================
    DROPDOWN MENUS (Buttons with arrows)
    ========================================================================== */

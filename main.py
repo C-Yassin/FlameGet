@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 import sys, os
-from multiprocessing import freeze_support
-if __name__ == '__main__':
-    freeze_support() 
-    worker_type = os.environ.get("FLAMEGET_WORKER")
-    if "downloader" == worker_type:
-        import downloader
-        downloader.main()
-        sys.exit(0)
-    elif "browser" == worker_type:
-        import browser_context_menu_handler
-        browser_context_menu_handler.main()
-        sys.exit(0)
+
+is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
+
+if os.name == "nt":
+    from multiprocessing import freeze_support
+    if __name__ == '__main__':
+        freeze_support() 
+        worker_type = os.environ.get("FLAMEGET_WORKER")
+        if "downloader" == worker_type:
+            import downloader
+            downloader.main()
+            sys.exit(0)
+        elif "browser" == worker_type:
+            import browser_context_menu_handler
+            browser_context_menu_handler.main()
+            sys.exit(0)
 
 os.environ['GSK_RENDERER'] = 'cairo'
 import gi, signal, subprocess, shutil, time, json, re, socket, threading, tempfile
@@ -25,7 +29,6 @@ from updater import SilentUpdater, UpdaterWindow, FLAMEGET_VERSION
 
 yt_dlp = addOn.lazy_import("yt_dlp")
 requests = addOn.lazy_import("requests")
-is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 
 WINDOWS_PORT = 18597
 WINDOWS_TRAY_PORT = 18598
@@ -239,7 +242,6 @@ class FlameGetManager(Gtk.Application):
         self.prev_statuses = {} 
 
         self.tray_process = None
-        self.server_process = None
         self.server_socket = None
         self.server_running = False
 
@@ -432,6 +434,9 @@ class FlameGetManager(Gtk.Application):
         self.check_and_install_dependencies(self.window)
         self.start_server()
         self.start_tray_subprocess()
+        
+        server_instance = FireServer(self.app_settings, self.downloader_script_path, self.browser_context_menu_handler_script_path)
+        server_instance.start_thread()
         return False
 
     def on_file_drop(self, target, value, x, y):
@@ -876,8 +881,8 @@ class FlameGetManager(Gtk.Application):
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_UP_DOWN)
         stack.set_hexpand(True)
 
-        panels = ["General", "Network", "Appearance", "Browser", "Shortcuts"]
-        icons = ["xsi-preferences-symbolic", "xsi-network-transmit-receive-symbolic", "xsi-graphics-symbolic", "xsi-help-browser-symbolic", "xsi-input-keyboard-symbolic"]
+        panels = ["General", "Network", "Appearance", "Browser", "Shortcuts", "Maintenance"]
+        icons = ["xsi-preferences-symbolic", "xsi-network-transmit-receive-symbolic", "xsi-graphics-symbolic", "xsi-help-browser-symbolic", "xsi-input-keyboard-symbolic", "xsi-dialog-warning-symbolic"]
 
         def stop_listening_safe():
             if self._listening_btn and self._listening_controller:
@@ -1337,6 +1342,90 @@ class FlameGetManager(Gtk.Application):
         scrolled_sc.set_child(grid); scrolled_sc.set_vexpand(True)
         shortcuts_box.append(scrolled_sc)
         stack.add_named(shortcuts_box, "Shortcuts")
+
+        maintenance_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        maintenance_box.set_margin_top(20)
+        maintenance_box.set_margin_bottom(20)
+        maintenance_box.set_margin_start(20)
+        maintenance_box.set_margin_end(20)
+
+        def create_maintenance_row(title_text, subtitle_text, button_text, is_danger=False):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
+            
+            text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text_box.set_hexpand(True) 
+            
+            title = Gtk.Label(label=tr(title_text))
+            title.set_halign(Gtk.Align.START)
+            
+            subtitle = Gtk.Label(label=tr(subtitle_text))
+            subtitle.set_halign(Gtk.Align.START)
+            subtitle.add_css_class("dim-label")
+            subtitle.add_css_class("small-text")
+            
+            text_box.append(title)
+            text_box.append(subtitle)
+            
+            action_btn = Gtk.Button(label=tr(button_text))
+            action_btn.set_valign(Gtk.Align.CENTER)
+            
+            action_btn.set_size_request(140, -1)
+            
+            if is_danger:
+                action_btn.add_css_class("btn_cancel")
+            else:
+                action_btn.add_css_class("generic-button")
+                
+            row.append(text_box)
+            row.append(action_btn)
+            return row, action_btn
+
+        maintenance_box.append(self.create_settings_label("Maintenance & Repair"))
+
+        cache_row, self.btn_clear_cache = create_maintenance_row(
+            "Clear Application Cache", 
+            "Removes temporary files, orphaned thumbnails, and broken downloads.", 
+            "Clean Cache"
+        )
+        maintenance_box.append(cache_row)
+        
+        maintenance_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        danger_label = Gtk.Label(label=tr("Danger Zone"))
+        danger_label.set_halign(Gtk.Align.START)
+        danger_label.add_css_class("error")
+        danger_label.set_markup(f"<b><big>{tr('Danger Zone')}</big></b>")
+        
+        danger_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        danger_box.append(danger_label)
+
+        db_row, self.btn_purge_db = create_maintenance_row(
+            "Purge Database", 
+            "Permanently deletes your entire download history. Files on disk are kept.", 
+            "Clear History",
+            is_danger=True
+        )
+        danger_box.append(db_row)
+
+        reset_row, self.btn_reset_settings = create_maintenance_row(
+            "Reset Settings", 
+            "Reverts all application settings and limits back to their defaults.", 
+            "Reset",
+            is_danger=True
+        )
+        danger_box.append(reset_row)
+
+        factory_row, self.btn_factory_reset = create_maintenance_row(
+            "Factory Reset", 
+            "Nukes everything: settings, database, and cache. Cannot be undone.", 
+            "Factory Reset",
+            is_danger=True
+        )
+        danger_box.append(factory_row)
+
+        maintenance_box.append(danger_box)
+
+        stack.add_named(maintenance_box, "Maintenance")
         
         def on_row_sel(b, r):
             if r:
@@ -1355,6 +1444,7 @@ class FlameGetManager(Gtk.Application):
             self.set_cursor_for_widget(row, "pointer")
             sidebar.append(row)
             if i == 0: sidebar.select_row(row)
+            if i == 5: row.add_css_class("danger-label")
 
         main_box.append(sidebar)
         sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL); sep.add_css_class("separator")
@@ -1366,6 +1456,132 @@ class FlameGetManager(Gtk.Application):
         addOn.set_titlebar_theme(dialog.get_title(), self.app_settings.get("theme_mode"))
         self.apply_cursor_recursive(dialog, "pointer")
         
+        self.btn_clear_cache.connect("clicked", lambda btn: self.confirm_maintenance_action(
+            "Clear Cache", 
+            "Are you sure you want to clear the application cache? This will remove temporary files.", 
+            is_danger=False, 
+            execution_callback=self.execute_clear_cache
+        ))
+
+        self.btn_purge_db.connect("clicked", lambda btn: self.confirm_maintenance_action(
+            "Purge Database", 
+            "Are you sure you want to permanently delete your download history? This cannot be undone.", 
+            is_danger=True, 
+            execution_callback=self.execute_purge_db
+        ))
+
+        self.btn_reset_settings.connect("clicked", lambda btn: self.confirm_maintenance_action(
+            "Reset Settings", 
+            "Are you sure you want to revert all settings to their default values?", 
+            is_danger=True, 
+            execution_callback=self.execute_reset_settings
+        ))
+
+        self.btn_factory_reset.connect("clicked", lambda btn: self.confirm_maintenance_action(
+            "Factory Reset", 
+            "WARNING: This will destroy all settings, history, and cache. Are you absolutely sure?", 
+            is_danger=True, 
+            execution_callback=self.execute_factory_reset
+        ))
+        
+    def confirm_maintenance_action(self, title_text, message_text, is_danger, execution_callback):
+        dialog = Gtk.Dialog(title=tr(title_text), transient_for=self.window, modal=True)
+        dialog.set_default_size(400, 125)
+        dialog.set_resizable(False)
+        GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
+        GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15, margin_top=20, margin_bottom=20, margin_start=20, margin_end=20)
+        
+        lbl = Gtk.Label(label=tr(message_text))
+        lbl.add_css_class("small-text")
+        lbl.set_hexpand(True)
+        box.append(lbl)
+
+        buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        
+        confirm_btn = Gtk.Button(label=tr("Proceed"))
+        confirm_btn.set_hexpand(True)
+        if is_danger:
+            confirm_btn.add_css_class("btn_cancel")
+        else:
+            confirm_btn.add_css_class("green-btn")
+            
+        cancel_btn = Gtk.Button(label=tr("Cancel"))
+        cancel_btn.set_hexpand(True)
+        cancel_btn.add_css_class("generic-button")
+
+        buttons_box.append(confirm_btn)
+        buttons_box.append(cancel_btn)
+        box.append(buttons_box)
+
+        dialog.set_child(box)
+
+        def on_confirm(*args):
+            dialog.destroy()
+            execution_callback()
+
+        def on_cancel(*args):
+            dialog.destroy()
+
+        confirm_btn.connect("clicked", on_confirm)
+        cancel_btn.connect("clicked", on_cancel)
+
+        dialog.set_visible(True)
+        self.apply_cursor_recursive(dialog, "pointer")
+    
+    def execute_clear_cache(self):
+        cache_dir = os.path.join(GLib.get_user_cache_dir(), "flameget")
+    
+        if os.path.exists(cache_dir):
+            try:
+                shutil.rmtree(cache_dir)
+                self.show_toast_popup(tr("Cache successfully cleared."))
+                
+                os.makedirs(cache_dir, exist_ok=True)
+                
+            except Exception as e:
+                print(f"Failed to clear cache: {e}")
+        else:
+            self.show_toast_popup(tr("Cache was already cleared."))
+        
+        self.db.clean_startup()
+
+    def execute_purge_db(self):
+        try: self.db.conn.close()
+        except Exception: pass
+
+        for _, file_path in self.db.db_paths.items():
+            if os.path.exists(file_path):
+                try: os.remove(file_path)
+                except: pass  
+
+        self.db = addOn.FireFiles.create_db()
+        self.show_toast_popup(tr("Database purged."))
+
+    def execute_reset_settings(self):
+        files_to_remove = [
+            "settings.json", 
+            "translations.json", 
+            "dark_style.css", 
+            "light_style.css", 
+            "custom_style.css"
+        ]
+        
+        for filename in files_to_remove:
+            user_path = os.path.join(addOn.FireFiles.config_dir, filename)
+            if os.path.exists(user_path):
+                try: os.remove(user_path)
+                except: pass
+                    
+        addOn.FireFiles.setup_settings()
+        GLib.idle_add(self.emergency_cleanup, None, None)
+
+    def execute_factory_reset(self):
+        self.execute_clear_cache
+        self.execute_purge_db()
+        self.execute_reset_settings()
+
     def create_settings_label(self, text, markup=""):
         lbl = Gtk.Label(label=tr(text))
         lbl.set_halign(Gtk.Align.START) 
@@ -1495,7 +1711,7 @@ class FlameGetManager(Gtk.Application):
     def add_url_button(self, btn, local_torrent_path=None):
         self.add_url_dialog = Gtk.Dialog(title=tr("New Download"), transient_for=self.window, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, self.add_url_dialog.get_title(), self.app_settings.get("theme_mode"))
-        if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, self.add_url_dialog.get_title(), "FlameGet")
+        GLib.timeout_add(50, addOn.force_center_dialog, self.add_url_dialog.get_title(), "FlameGet")
 
         key_controller = Gtk.EventControllerKey()
         key_controller.connect("key-pressed", self.on_window_key_pressed, self.add_url_dialog)
@@ -1546,6 +1762,8 @@ class FlameGetManager(Gtk.Application):
         content_area.append(sep)
 
         self.dialog_stack = Gtk.Stack()
+        self.dialog_stack.set_hhomogeneous(False)
+        self.dialog_stack.set_vhomogeneous(False)
         self.dialog_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self.dialog_stack.set_transition_duration(300) 
 
@@ -4097,16 +4315,6 @@ class FlameGetManager(Gtk.Application):
             return True
 
         elif is_match("quit"):
-            if self.server_process:
-                print("Stopping Browser Integration Server...")
-                try:
-                    self.server_process.terminate()
-                    self.server_process.wait(timeout=2)
-                except Exception as e:
-                    print(f"Error killing server: {e}")
-                    try: self.server_process.kill()
-                    except: pass
-                
             GLib.idle_add(self.emergency_cleanup, None, None)
             return True
             
@@ -4334,10 +4542,8 @@ class FlameGetManager(Gtk.Application):
         return url
 
     def start_server(self):
-        threading.Thread(target=server_main, daemon=True).start()
         self.server_running = True
-        thread = threading.Thread(target=self._server_loop, daemon=True)
-        thread.start()
+        threading.Thread(target=self._server_loop, daemon=True).start()
 
     def _server_loop(self):
         try:
@@ -4689,16 +4895,6 @@ class FlameGetManager(Gtk.Application):
     def emergency_cleanup(self, signum, frame):
         if self.tray_process: self.stop_tray_subprocess()
 
-        if self.server_process:
-            print(" - Stopping Server Process...")
-            try:
-                self.server_process.terminate()
-                self.server_process.wait(timeout=1)
-            except Exception as e:
-                print(f"   Error killing server: {e}")
-                try: self.server_process.kill() 
-                except: pass
-
         try:
             cursor = self.db.conn.cursor()
             cursor.execute("SELECT id, filename, pid FROM downloads WHERE status IN ('downloading', 'Seeding', 'Paused')")
@@ -4860,209 +5056,212 @@ def main():
             pass
 
 # [ THE SERVER FOR THE BROWSER EXTENSION ]
-
-from flask import Flask, request, jsonify
-from waitress import serve
-
-flask_app = Flask(__name__)
-
-downloader_script_path = addOn.FireFiles.downloader_script_path
-browser_context_menu_handler_script_path = addOn.FireFiles.browser_context_menu_handler_script_path
-
-app_settings = load_settings()
-
-def notify_main_ui(message, is_error=False):
-    try:
-        prefix = "error_toast:" if is_error else "toast:"
-        cmd = f"{prefix}{message}".encode('utf-8')
-        
-        if os.name == 'nt':
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1)
-                s.connect(('127.0.0.1', 18597))
-                s.sendall(cmd)
-        else:
-            sock_path = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_dm_tray.sock")
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                s.settimeout(1)
-                s.connect(sock_path)
-                s.sendall(cmd)
-    except Exception:
-        pass
-
-def secure_unicode_filename(filename):
-    if not filename:
-        return "download.dat"
-        
-    filename = filename.replace('/', '_').replace('\\', '_')
-    filename = re.sub(r'[^\w\s.\-()\[\],!\'&]', '', filename)
-    filename = filename.strip(' .')
-    return filename if filename else "download.dat"
-
-@flask_app.after_request
-def add_cors_headers(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
-
-@flask_app.route('/sync')
-def sync():
-    data = {
-        "status": "ok",
-        "enabled": True,
-        "fileExts": ["*"], 
-        "blockedHosts": [],
-        "tabsWatcher": [],
-        "videoList": [],
-        "mediaExts": [""],
-        "matchingHosts": [],
-        "mediaTypes": [],
-        "message": "Hello from Python!"
-    }
-    return jsonify(data)
-    
-@flask_app.route("/video_download", methods=["POST", "OPTIONS"])
-def handle_video_download():
-    if request.method == "OPTIONS":
-        return jsonify({"status": "ok"}), 200
-
-    print("captured video_download!")
-    
-    data = request.get_json(force=True, silent=True)
-    if not data:
-        return jsonify({"error": "No JSON data received"}), 400
-
-    url = data.get("url")
-    isAuto = data.get("isAuto")
-    if not url:
-        return jsonify({"error": "Missing 'url' parameter"}), 400
-
-    if not browser_context_menu_handler_script_path:
-        return jsonify({"error": "Server configuration error"}), 500
-    
-    worker_env = os.environ.copy()
-    worker_env["FLAMEGET_WORKER"] = "browser"
-    
-    executable_path = sys.executable 
-    is_compiled = getattr(sys, 'frozen', False)
-    args = [executable_path]
-    
-    if not is_compiled:
-        args.append(os.path.abspath(browser_context_menu_handler_script_path))
-    cmd = [*args, url]
-
-    if isAuto:
-        autoType = data.get("autoType")
-        autoQuality = data.get("autoQuality")
-        autoFormat = data.get("autoFormat")
-        chkPlaylist = data.get("chkPlaylist")
-        if autoType: cmd.append("--audio")
-        if chkPlaylist: cmd.append("--playlist")
-        if autoFormat: cmd.extend(["--ext", "." + autoFormat])
-        if autoQuality: cmd.extend(["--quality", autoQuality])
-
-    subprocess.Popen(cmd, env=worker_env)
-    return jsonify({"status": "ok"})
-
-@flask_app.route("/download", methods=["POST", "OPTIONS"])
-def handle_download():
-    if request.method == "OPTIONS":
-        return jsonify({"status": "ok"}), 200
-
-    data = request.get_json(force=True, silent=True)
-    if data == None:
-        return jsonify({"error": "No JSON data received"}), 400
-        
-    url = data.get("url")
-    raw_name = data.get("filename")
-    if raw_name: raw_name = os.path.basename(raw_name)
-    filename = secure_unicode_filename(raw_name)
-    raw_size = data.get("fileSize")
-    try:
-        size_str = str(int(raw_size)) if raw_size is not None and int(raw_size) >= 0 else "0"
-    except (ValueError, TypeError):
-        size_str = "0"
-
-    cookies = data.get("cookies", None)
-    user_agent = data.get("userAgent", None)
-    referer = data.get("referer", None)
-
-    worker_env = os.environ.copy()
-    worker_env["FLAMEGET_WORKER"] = "downloader"
-    
-    executable_path = sys.executable 
-    is_compiled = getattr(sys, 'frozen', False)
-    args = [executable_path]
-    if not is_compiled:
-        args.append(os.path.abspath(downloader_script_path))
-        
-    cmd = [
-        *args, url, filename, size_str,
-        app_settings.get("default_download_dir")
-    ]
-
-    cmd.extend(["--segments", str(app_settings.get("default_segments"))])
-    cmd.extend(["--id", "-1"])
-    cmd.extend(["--speed-limit", str(app_settings.get("global_speed_limit"))])
-
-    if cookies: cmd.append(f"--cookies={cookies}")
-    if user_agent: cmd.append(f"--user-agent={user_agent}")
-    if referer: cmd.append(f"--referer={referer}")
-
-    subprocess.Popen(cmd, env=worker_env)
-    return jsonify({"status": "ok", "filename": filename})
-
-def diagnose_server_port(port):
+class FireServer:
+    from flask import Flask, request, jsonify
     import urllib.request
-    import urllib.error
+    from waitress import serve
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.5)
-        is_occupied = (s.connect_ex(('127.0.0.1', port)) == 0)
-        
-    if not is_occupied:
-        return "DEAD"
+    def __init__(self, app_settings, downloader_script_path, browser_context_menu_handler_script_path):
+        self.flask_app = self.Flask(__name__)
 
-    try:
-        url = f"http://127.0.0.1:{port}/sync"
-        req = urllib.request.Request(url, method="GET")
+        self.downloader_script_path = downloader_script_path
+        self.browser_context_menu_handler_script_path = browser_context_menu_handler_script_path
+        self.app_settings = app_settings
+
+        self.flask_app.after_request(self.add_cors_headers)
+        self.flask_app.add_url_rule('/sync', 'sync', self.sync, methods=['GET'])
+        self.flask_app.add_url_rule('/video_download', 'video_download', self.handle_video_download, methods=['POST', 'OPTIONS'])
+        self.flask_app.add_url_rule('/download', 'download', self.handle_download, methods=['POST', 'OPTIONS'])
+
+    def start_thread(self):
+        threading.Thread(target=self.server_main, daemon=True).start()
+
+    def notify_main_ui(self, message, is_error=False):
+        try:
+            prefix = "error_toast:" if is_error else "toast:"
+            cmd = f"{prefix}{message}".encode('utf-8')
+            
+            if os.name == 'nt':
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    s.connect(('127.0.0.1', 18597))
+                    s.sendall(cmd)
+            else:
+                sock_path = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_dm_tray.sock")
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    s.connect(sock_path)
+                    s.sendall(cmd)
+        except Exception:
+            pass
+
+    def secure_unicode_filename(self, filename):
+        if not filename:
+            return "download.dat"
+            
+        filename = filename.replace('/', '_').replace('\\', '_')
+        filename = re.sub(r'[^\w\s.\-()\[\],!\'&]', '', filename)
+        filename = filename.strip(' .')
+        return filename if filename else "download.dat"
+
+    def add_cors_headers(self, response):
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return response
+
+    def sync(self):
+        data = {
+            "status": "ok",
+            "enabled": True,
+            "fileExts": ["*"], 
+            "blockedHosts": [],
+            "tabsWatcher": [],
+            "videoList": [],
+            "mediaExts": [""],
+            "matchingHosts": [],
+            "mediaTypes": [],
+            "message": "Hello from Python!"
+        }
+        return FireServer.jsonify(data)
         
-        with urllib.request.urlopen(req, timeout=1.0) as response:
-            if response.status == 200:
-                return "HEALTHY"
+    def handle_video_download(self):
+        if self.request.method == "OPTIONS":
+            return FireServer.jsonify({"status": "ok"}), 200
+
+        print("captured video_download!")
+        
+        data = self.request.get_json(force=True, silent=True)
+        if not data:
+            return FireServer.jsonify({"error": "No JSON data received"}), 400
+
+        url = data.get("url")
+        isAuto = data.get("isAuto")
+        if not url:
+            return FireServer.jsonify({"error": "Missing 'url' parameter"}), 400
+
+        if not self.browser_context_menu_handler_script_path:
+            return FireServer.jsonify({"error": "Server configuration error"}), 500
+        
+        worker_env = os.environ.copy()
+        worker_env["FLAMEGET_WORKER"] = "browser"
+        
+        executable_path = sys.executable 
+        is_compiled = getattr(sys, 'frozen', False)
+        args = [executable_path]
+        
+        if not is_compiled:
+            args.append(os.path.abspath(self.browser_context_menu_handler_script_path))
+        cmd = [*args, url]
+
+        if isAuto:
+            autoType = data.get("autoType")
+            autoQuality = data.get("autoQuality")
+            autoFormat = data.get("autoFormat")
+            chkPlaylist = data.get("chkPlaylist")
+            if autoType: cmd.append("--audio")
+            if chkPlaylist: cmd.append("--playlist")
+            if autoFormat: cmd.extend(["--ext", "." + autoFormat])
+            if autoQuality: cmd.extend(["--quality", autoQuality])
+
+        subprocess.Popen(cmd, env=worker_env)
+        return FireServer.jsonify({"status": "ok"})
+
+    def handle_download(self):
+        if self.request.method == "OPTIONS":
+            return FireServer.jsonify({"status": "ok"}), 200
+
+        data = self.request.get_json(force=True, silent=True)
+        if data is None:
+            return FireServer.jsonify({"error": "No JSON data received"}), 400
+            
+        url = data.get("url")
+        raw_name = data.get("filename")
+        if raw_name: raw_name = os.path.basename(raw_name)
+        filename = self.secure_unicode_filename(raw_name)
+        raw_size = data.get("fileSize")
+        try:
+            size_str = str(int(raw_size)) if raw_size is not None and int(raw_size) >= 0 else "0"
+        except (ValueError, TypeError):
+            size_str = "0"
+
+        cookies = data.get("cookies", None)
+        user_agent = data.get("userAgent", None)
+        referer = data.get("referer", None)
+
+        worker_env = os.environ.copy()
+        worker_env["FLAMEGET_WORKER"] = "downloader"
+        
+        executable_path = sys.executable 
+        is_compiled = getattr(sys, 'frozen', False)
+        args = [executable_path]
+        if not is_compiled:
+            args.append(os.path.abspath(self.downloader_script_path))
+            
+        cmd = [
+            *args, url, filename, size_str,
+            self.app_settings.get("default_download_dir")
+        ]
+
+        cmd.extend(["--segments", str(self.app_settings.get("default_segments"))])
+        cmd.extend(["--id", "-1"])
+        cmd.extend(["--speed-limit", str(self.app_settings.get("global_speed_limit"))])
+
+        if cookies: cmd.append(f"--cookies={cookies}")
+        if user_agent: cmd.append(f"--user-agent={user_agent}")
+        if referer: cmd.append(f"--referer={referer}")
+        cmd.append("--pass_check")
+        
+        subprocess.Popen(cmd, env=worker_env)
+        return FireServer.jsonify({"status": "ok", "filename": filename})
+
+    def diagnose_server_port(self, port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            is_occupied = (s.connect_ex(('127.0.0.1', port)) == 0)
+            
+        if not is_occupied:
+            return "DEAD"
+
+        try:
+            url = f"http://127.0.0.1:{port}/sync"
+            req = self.urllib.request.Request(url, method="GET")
+            
+            with self.urllib.request.urlopen(req, timeout=1.0) as response:
+                if response.status == 200:
+                    return "HEALTHY"
+                    
+        except: pass
+
+        return "HIJACKED_OR_FROZEN"
+
+    def server_main(self):
+        base_port = int(self.app_settings.get("browser_port", 6812))
+        try:
+            print(f"Attempting to start server on 127.0.0.1:{base_port}...")   
+            status = self.diagnose_server_port(base_port)
+            
+            if status == "HEALTHY":
+                print(f"Server is already running and healthy on port {base_port}.")
+                return
                 
-    except (urllib.error.URLError, ConnectionResetError, TimeoutError):
-        pass
-
-    return "HIJACKED_OR_FROZEN"
-
-def server_main():
-    base_port = int(app_settings.get("browser_port", 6812))
-    try:
-        print(f"Attempting to start server on 127.0.0.1:{base_port}...")   
-        status = diagnose_server_port(base_port)
-        
-        if status == "HEALTHY":
-            print(f"Server is already running and healthy on port {base_port}.")
-            return
+            elif status == "HIJACKED_OR_FROZEN":
+                print(f"CRITICAL: Port {base_port} is hijacked by another app!")
+                self.notify_main_ui(f"Port {base_port} is busy! Please change it in settings.", is_error=True)
+                return
+                
+            elif status == "DEAD":
+                print("Port is free. Starting server...")
             
-        elif status == "HIJACKED_OR_FROZEN":
-            print(f"CRITICAL: Port {base_port} is hijacked by another app!")
-            notify_main_ui(f"Port {base_port} is busy! Please change it in settings.", is_error=True)
-            return
+            FireServer.serve(self.flask_app, host='127.0.0.1', port=base_port, threads=4)
             
-        elif status == "DEAD":
-            print("Port is free. Starting server...")
-        serve(flask_app, host='127.0.0.1', port=base_port, threads=4)
-        
-    except OSError as e:
-        if "Address already in use" in str(e) or getattr(e, 'errno', 0) == 98:
-            print(f"Port {base_port} is busy.")
-            notify_main_ui(f"Port {base_port} is busy! Please change it in settings.", is_error=True)
-        else:
-            notify_main_ui(f"Browser integration crashed: {str(e)}", is_error=True)
-            raise e
+        except OSError as e:
+            if "Address already in use" in str(e) or getattr(e, 'errno', 0) == 98:
+                print(f"Port {base_port} is busy.")
+                self.notify_main_ui(f"Port {base_port} is busy! Please change it in settings.", is_error=True)
+            else:
+                self.notify_main_ui(f"Browser integration crashed: {str(e)}", is_error=True)
+                raise e
 
 if __name__ == '__main__':
     main()

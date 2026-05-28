@@ -115,7 +115,7 @@ class TorrentNode(GObject.Object):
             self.parent.recalculate_state()
 
 class DownloadWindow(Gtk.ApplicationWindow):
-    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None):
+    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None, pass_check=False):
         super().__init__(application=app_manager)
 
         self.conn = addOn.FireFiles.db.conn
@@ -151,7 +151,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.file_size_bytes = file_size
         self.cookies = cookies
         self.referer = referer
-
+        self.pass_check = pass_check
         # yt_dlp params:
         self.is_yt_dlp = is_yt_dlp if is_yt_dlp else self.does_support_yt_dlp(self.url)
         self.progress = 0
@@ -337,9 +337,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         self.destroy()
 
-    def get_file_info(self, url):
+    def get_file_info(self, url, pass_check=False):
         if self.download_playlist:
             return True, 0, "Playlist"
+
+        if not self.is_yt_dlp and pass_check:
+            return False, 0, "Unknown" 
 
         supports = False
         file_size = 0
@@ -501,7 +504,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 return
 
             if self.file_size_bytes == 0 or self.file_size_bytes == "":
-                self.is_supporting_range, file_size, filename = self.get_file_info(url)
+                self.is_supporting_range, file_size, filename = self.get_file_info(url, self.pass_check)
                 if self.FileName == "UNKNOWN" or self.FileName == "":
                     self.FileName = filename
             else:
@@ -1691,7 +1694,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.folder_entry.remove_css_class("error")
         self.folder_entry.remove_css_class("success")
         self.did_download_button_get_clicked = True
-        
+
         if self.is_torrent:
             selected_indices = []
             self.expander.set_sensitive(False)
@@ -3555,7 +3558,8 @@ class DownloaderAppManager(Gtk.Application):
         parser.add_argument("--cookies", type=str, default=None, help="Path to cookies file")
         parser.add_argument("--user-agent", type=str, default=None, help="User agent string")
         parser.add_argument("--referer", type=str, default=None, help="Referer URL")
-
+        parser.add_argument("--pass_check", action="store_true", default=False, help="Pass the URL check")
+        
         # Parse from index 1 to ignore the executable name itself which is very fat on the ram
         args, _ = parser.parse_known_args(args_list[1:])
 
@@ -3588,7 +3592,8 @@ class DownloaderAppManager(Gtk.Application):
             trackers=args.trackers,
             cookies=args.cookies,
             user_agent=args.user_agent,
-            referer=args.referer
+            referer=args.referer,
+            pass_check=args.pass_check
         )
         if os.name == 'nt': 
             unique_title = f"FlameGet Downloader - {win.port}"
@@ -3606,6 +3611,7 @@ class DownloaderAppManager(Gtk.Application):
 
 def main():
     app = DownloaderAppManager()
+    print("Launching: ", sys.argv)
     app.run(sys.argv)
 
 if __name__ == "__main__":

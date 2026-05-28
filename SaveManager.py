@@ -6,6 +6,8 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Gio
 
 config_dir = os.path.join(GLib.get_user_config_dir(), "flameget")
+cache_dir = os.path.join(GLib.get_user_cache_dir(), "flameget")
+
 settings_file = os.path.join(config_dir, "settings.json")
 translations_file = os.path.join(config_dir, "translations.json")
 global_style_provider = None
@@ -156,6 +158,12 @@ def tr( text):
 
 class DownloadDatabase:
     def __init__(self, db_name="downloads.db"):
+        base_path = os.path.abspath(db_name)
+        self.db_paths = {
+            "main": base_path,
+            "wal": f"{base_path}-wal",
+            "shm": f"{base_path}-shm"
+        }       
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
