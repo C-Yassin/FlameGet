@@ -2372,7 +2372,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         UI_size_str, UI_speed = self.get_parsed_UI()
                         GLib.idle_add(
                             self.est_time_label.set_markup,
-                            f"{tr('Downloaded:')} <b><span font_features='tnum=1'>{UI_size_str}</span></b>| {tr('Speed')}: <b><span font_features='tnum=1'>{UI_speed}</span></b> | ETA: <b>--:--</b>"
+                            f"{tr('Downloaded:')} <b><span font_features='tnum=1'>{UI_size_str}</span></b> | {tr('Speed')}: <b><span font_features='tnum=1'>{UI_speed}</span></b> | ETA: <b>--:--</b>"
                         )
                 time.sleep(0.1)
 
