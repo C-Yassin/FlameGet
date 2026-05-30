@@ -26,6 +26,7 @@ else:
 WINDOWS_TRAY_PORT = 18598
 #for the stupid range detection     
 ARIA2_SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
+HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
 
 class TorrentNode(GObject.Object):
     __gtype_name__ = 'TorrentNode'
@@ -288,7 +289,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if self.in_minimize_mode:
             self.toggle_visibility()
         
-        signal.signal(signal.SIGUSR1, lambda signum, frame: GLib.idle_add(self.on_pause_clicked, None))
+        if HAS_SIGUSR1: signal.signal(signal.SIGUSR1, lambda signum, frame: GLib.idle_add(self.on_pause_clicked, None))
 
     def on_close_request(self, *args):
         if self.download_started:
