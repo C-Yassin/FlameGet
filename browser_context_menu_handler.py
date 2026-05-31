@@ -163,27 +163,13 @@ class VideoAnalyzer(Gtk.Application):
         print("final name is ", filename_to_use)
         return True, file_size, filename_to_use
 
-    def check_and_fix_filename(self, name_to_check):
-        base_name, ext = os.path.splitext(name_to_check)
-        new_name = name_to_check
-        counter = 1
-
-        while os.path.exists(os.path.join(self.directory, new_name)):
-            print(f"'{new_name}' already exists! Trying next number...")
-            new_name = f"{base_name}({counter}){ext}"
-            counter += 1
-
-        self.filename = new_name
-
     def fetch_metadata(self):
         try:
             if not self.is_playlist:
                 success, size, name = self.fetch_head_info(self.url, self.ext, self.is_audio, self.quality, self.is_playlist)
                 if success:
-                    self.filename = name
-                    if os.path.exists(os.path.join(self.directory, self.filename)): self.check_and_fix_filename(name)
+                    self.filename = addOn.check_and_fix_filename(addOn.FireFiles.db ,self.directory, name)
                     self.file_size_bytes = size
-                 
                 else:
                     self.file_size_bytes = 0
                     self.filename = (self.filename and self.filename.strip()) or "Unknown"
@@ -233,7 +219,6 @@ class VideoAnalyzer(Gtk.Application):
 
         row = 0
 
-        # --- Row 0: Filename ---
         grid.attach(Gtk.Label(label=tr("Filename:"), halign=Gtk.Align.START), 0, row, 1, 1)
         
         self.filename_entry = Gtk.Entry()
@@ -243,7 +228,6 @@ class VideoAnalyzer(Gtk.Application):
         grid.attach(self.filename_entry, 1, row, 1, 1)
         row += 1
 
-        # --- Row 1: URL ---
         grid.attach(Gtk.Label(label=tr("URL:"), halign=Gtk.Align.START), 0, row, 1, 1)
         
         url_entry = Gtk.Entry()
@@ -255,12 +239,10 @@ class VideoAnalyzer(Gtk.Application):
         grid.attach(url_entry, 1, row, 1, 1)
         row += 1
 
-        # --- Row 2: Separator ---
         sep1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         grid.attach(sep1, 0, row, 2, 1)
         row += 1
 
-        # --- Row 3: Estimated Size ---
         grid.attach(Gtk.Label(label=tr("Estimated Size:"), halign=Gtk.Align.START), 0, row, 1, 1)
         
         size_str = self.parse_size(self.file_size_bytes)
@@ -271,12 +253,10 @@ class VideoAnalyzer(Gtk.Application):
         grid.attach(self.lbl_size, 1, row, 1, 1)
         row += 1
 
-        # --- Row 4: Separator ---
         sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         grid.attach(sep2, 0, row, 2, 1)
         row += 1
 
-        # --- Row 5: Format ---
         grid.attach(Gtk.Label(label=tr("Format:"), halign=Gtk.Align.START), 0, row, 1, 1)
         
         self.dd_type = Gtk.DropDown.new_from_strings(["Video", "Audio Only"])
@@ -286,7 +266,6 @@ class VideoAnalyzer(Gtk.Application):
         grid.attach(self.dd_type, 1, row, 1, 1)
         row += 1
 
-        # --- Row 6: Quality ---
         grid.attach(Gtk.Label(label=tr("Quality:"), halign=Gtk.Align.START), 0, row, 1, 1)
         
         self.quality_model = Gtk.StringList.new(["Best Available", "4K", "1080p", "720p", "480p", "360p", "240p", "144p"])
@@ -296,7 +275,6 @@ class VideoAnalyzer(Gtk.Application):
         grid.attach(self.dd_quality, 1, row, 1, 1)
         row += 1
 
-        # --- Row 7: Container ---
         lbl_fmt = Gtk.Label(label=tr("Container:"), xalign=0)
         self.dd_fmt = Gtk.DropDown.new_from_strings(["mp4", "mkv", "webm", "mov", "avi"])
         self.dd_fmt.set_hexpand(True)

@@ -253,7 +253,20 @@
         "Reverts all application settings and limits back to their defaults.": "Rétablit tous les paramètres et limites de l'application à leurs valeurs par défaut.",
         "Nukes everything: settings, database, and cache. Cannot be undone.": "Détruit tout : paramètres, base de données et cache. Cette action est irréversible.",
         "Cache successfully cleared.": "Cache vidé avec succès.",
-        "Cache was already cleared.": "Le cache était déjà vide."
+        "Cache was already cleared.": "Le cache était déjà vide.",
+        "Queue Settings": "Paramètres de la file d'attente",
+        "High": "Haute",
+        "Normal": "Normale",
+        "Low": "Basse",
+        "Apply": "Appliquer",
+        "Time:": "Heure :",
+        "The url is being processed please wait some seconds...": "L'URL est en cours de traitement, veuillez patienter quelques secondes...",
+        "Download Priority:": "Priorité de téléchargement :",
+        "Limit Bandwidth": "Limiter la bande passante",
+        "Scheduled for:": "Programmé pour :",
+        "Today at": "Aujourd'hui à",
+        "Tomorrow at": "Demain à",
+        "at": "à"
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -509,7 +522,20 @@
         "Reverts all application settings and limits back to their defaults.": "Revierte todas las configuraciones y límites de la aplicación a sus valores predeterminados.",
         "Nukes everything: settings, database, and cache. Cannot be undone.": "Elimina todo: configuraciones, base de datos y caché. No se puede deshacer.",
         "Cache successfully cleared.": "Caché borrado con éxito.",
-        "Cache was already cleared.": "El caché ya estaba borrado."
+        "Cache was already cleared.": "El caché ya estaba borrado.",
+        "Queue Settings": "Configuraciones de la cola",
+        "High": "Alta",
+        "Normal": "Normal",
+        "Low": "Baja",
+        "Apply": "Aplicar",
+        "Time:": "Hora:",
+        "The url is being processed please wait some seconds...": "La URL está siendo procesada, por favor espere unos segundos...",
+        "Download Priority:": "Prioridad de descarga:",
+        "Limit Bandwidth": "Limitar ancho de banda",
+        "Scheduled for:": "Programado para:",
+        "Today at": "Hoy a las",
+        "Tomorrow at": "Mañana a las",
+        "at": "a las"
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -765,7 +791,20 @@
         "Reverts all application settings and limits back to their defaults.": "Возвращает все настройки и лимиты приложения к значениям по умолчанию.",
         "Nukes everything: settings, database, and cache. Cannot be undone.": "Уничтожает всё: настройки, базу данных и кэш. Невозможно отменить.",
         "Cache successfully cleared.": "Кэш успешно очищен.",
-        "Cache was already cleared.": "Кэш уже был очищен."
+        "Cache was already cleared.": "Кэш уже был очищен.",
+        "Queue Settings": "Настройки очереди",
+        "High": "Высокий",
+        "Normal": "Обычный",
+        "Low": "Низкий",
+        "Apply": "Применить",
+        "Time:": "Время:",
+        "The url is being processed please wait some seconds...": "URL обрабатывается, пожалуйста, подождите несколько секунд...",
+        "Download Priority:": "Приоритет загрузки:",
+        "Limit Bandwidth": "Ограничение скорости",
+        "Scheduled for:": "Запланировано на:",
+        "Today at": "Сегодня в",
+        "Tomorrow at": "Завтра в",
+        "at": "в"
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -1021,6 +1060,19 @@
         "Reverts all application settings and limits back to their defaults.": "يُرجع جميع إعدادات التطبيق والحدود إلى قيمها الافتراضية.",
         "Nukes everything: settings, database, and cache. Cannot be undone.": "يدمر كل شيء: الإعدادات وقاعدة البيانات وذاكرة التخزين المؤقت. لا يمكن التراجع عن هذا.",
         "Cache successfully cleared.": "تم مسح ذاكرة التخزين المؤقت بنجاح.",
-        "Cache was already cleared.": "تم مسح ذاكرة التخزين المؤقت مسبقاً."
+        "Cache was already cleared.": "تم مسح ذاكرة التخزين المؤقت مسبقاً.",
+        "Queue Settings": "إعدادات قائمة الانتظار",
+        "High": "عالي",
+        "Normal": "عادي",
+        "Low": "منخفض",
+        "Apply": "تطبيق",
+        "Time:": "الوقت:",
+        "The url is being processed please wait some seconds...": "جاري معالجة الرابط، يرجى الانتظار بضع ثوان...",
+        "Download Priority:": "أولوية التحميل:",
+        "Limit Bandwidth": "تقييد النطاق الترددي",
+        "Scheduled for:": "مجدول في:",
+        "Today at": "اليوم في",
+        "Tomorrow at": "غداً في",
+        "at": "في"
     }
 }

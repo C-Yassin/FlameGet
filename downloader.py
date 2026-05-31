@@ -116,11 +116,12 @@ class TorrentNode(GObject.Object):
             self.parent.recalculate_state()
 
 class DownloadWindow(Gtk.ApplicationWindow):
-    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None, pass_check=False):
+    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None, pass_check=False, check_256sum=None):
         super().__init__(application=app_manager)
 
         self.conn = addOn.FireFiles.db.conn
         self.url = url
+        self.check_256sum = check_256sum
         self.runtime_dir = addOn.UNITS.RUNTIME_DIR
         # Use port in socket name to prevent collision if multiple windows open in the same process
         self.port = random.randint(50000, 60000)
@@ -231,11 +232,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.canDownload = True
         self.pulsing = False
         self.progress_bars = []
-        self.entry_locked = True
         self.limit_speed = speed_limit
         self.lock_file = ""
         self.download_button = Gtk.Button(label=tr("Download"))
         self.did_download_button_get_clicked = False
+        self.is_resumable = False
         self.download_button.set_hexpand(True)
         self.download_button.add_css_class("green-btn")
         self.download_button.connect("clicked", self.on_download_clicked)
@@ -328,7 +329,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if hasattr(self, 'conn'):
             try:
                 cursor = self.conn.cursor()
-                if not self.did_download_button_get_clicked: cursor.execute("DELETE FROM downloads WHERE id = ?", (self.download_id,))
+                if not self.did_download_button_get_clicked and not self.is_resumable: cursor.execute("DELETE FROM downloads WHERE id = ?", (self.download_id,))
                 else: cursor.execute("UPDATE downloads SET pid = -1 WHERE id = ?", (self.download_id,))
                 self.conn.commit()
                 
@@ -504,48 +505,77 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 self.fetch_torrent_metadata()
                 return
 
-            if self.file_size_bytes == 0 or self.file_size_bytes == "":
+            if hasattr(self, 'download_id') and self.download_id != -1:
+                print("fetching data")
+                self.fetch_db_querry(self.download_id)
+
+            if not self.file_size_bytes:
+                print("fetching no data")
                 self.is_supporting_range, file_size, filename = self.get_file_info(url, self.pass_check)
-                if self.FileName == "UNKNOWN" or self.FileName == "":
+                
+                if not self.FileName or self.FileName == "UNKNOWN":
                     self.FileName = filename
+                    
+                self.file_size_bytes = file_size
             else:
                 self.is_supporting_range = True
 
-            self.file_size_bytes = file_size
             self.category = addOn.categorize_filename(self.FileName)
-            print("self.category", self.category)
-            self.segment_size = self.file_size_bytes // self.segments_count
             
-            if self.file_size_bytes == 0:
+            self.segment_size = self.file_size_bytes // max(1, self.segments_count)
+            
+            if not self.file_size_bytes:
                 file_size_str = tr("UNKNOWN")
             else:
-                file_size_str = addOn.parse_size(file_size)
+                file_size_str = addOn.parse_size(self.file_size_bytes)
             
-            size_markup = f"{tr('File Size:')} <b>{addOn.parse_size(self.file_size_bytes)}</b>"
+            size_markup = f"{tr('File Size:')} <b>{file_size_str}</b>"
 
-            download_label = tr("Download")
+            download_label = "Download"
             
-            if self.is_yt_dlp:
+            if getattr(self, 'is_yt_dlp', False):
                 path = addOn.find_active_part_yt_dlp(self.FileName, self.download_folder)
                 if path and os.path.exists(path):
-                    download_label = tr("Resume")
+                    download_label = "Resume"
             else:
-                if self.download_engine == "aria2":
-                    if os.path.exists(self.output_file) and os.path.exists(self.output_file + ".aria2"):
-                        download_label = tr("Resume")
+                if getattr(self, 'download_engine', '') == "aria2":
+                    if hasattr(self, 'output_file') and os.path.exists(self.output_file) and os.path.exists(self.output_file + ".aria2"):
+                        download_label = "Resume"
                         percent = (os.path.getsize(self.output_file) / self.file_size_bytes) * 100 if self.file_size_bytes > 0 else 0
                         self.progress = float(percent)
                 else:
                     if hasattr(self, 'part_files') and self.part_files and os.path.exists(self.part_files[0]):
-                        download_label = tr("Resume")
-
-            GLib.idle_add(self.on_fetch_complete, size_markup, file_size_str, download_label)
+                        download_label = "Resume"
+            
+            if download_label == "Resume": self.is_resumable = True
+            GLib.idle_add(self.on_fetch_complete, size_markup, file_size_str, tr(download_label))
 
         except Exception as e:
-            import traceback
             print(f"Error in fetch thread: {e}")
-            traceback.print_exc()
 
+    def fetch_db_querry(self, download_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM downloads WHERE id = ?", (download_id,))
+        row = cursor.fetchone()
+        
+        if row:
+            self.FileName = row["filename"]
+            self.file_size_bytes = row["file_size_bytes"]
+            self.segments_count = row["segments"]
+            self.is_audio = bool(row["is_audio"])
+            self.quality_mod = row["quality_mod"]
+            self.download_playlist = bool(row["download_playlist"])
+            self.limit_speed = int(row["bandwidth_limit"])
+            raw_hash_bytes = row["hash"]
+        
+            if raw_hash_bytes:
+                self.check_256sum = raw_hash_bytes.hex()
+            else:
+                self.check_256sum = None
+
+            if self.limit_speed > 0: self.speed_limit_entry.set_text(str(self.limit_speed))  
+            self.connections_spin.set_value(self.segments_count)
+            self.checksum_entry.set_text(self.check_256sum or "")
     def parse_torrent_indices(self):
         self.parsed_indices = set()
         if hasattr(self, 'torrent_indices') and self.torrent_indices and self.torrent_indices != "None":
@@ -1137,7 +1167,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.speed_limit_entry.add_css_class("small-text")
         self.speed_limit_entry.set_placeholder_text(tr("Speed Limit"))
         self.speed_limit_entry.add_css_class("entry")
-        self.speed_limit_entry.set_text(str(int(self.limit_speed)) if self.limit_speed else "0")
+        self.speed_limit_entry.set_text(str(int(self.limit_speed)) or "0")
         self.speed_limit_entry.set_tooltip_text(tr("Enter speed limit in K, e.g., 400 for 400 K"))
         self.speed_limit_entry.connect("changed", self.set_entry_text)
         self.speed_limit_entry.set_hexpand(True)
@@ -1203,7 +1233,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
             box.append(checksum_label)
 
             self.checksum_entry = Gtk.Entry()
+            self.checksum_entry.connect("changed", self.on_checksum_entry_changed)
             self.checksum_entry.set_placeholder_text("e.g. a591a6d40bf420404a011733cfb7b190d62c...")
+            self.checksum_entry.set_text(self.check_256sum or "")
             self.checksum_entry.add_css_class("entry")
             self.checksum_entry.add_css_class("small-text")
             box.append(self.checksum_entry)
@@ -1242,64 +1274,67 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         return box
 
+    def on_checksum_entry_changed(self, entry):
+        self.check_256sum = entry.get_text().strip()
+        
+        hash_to_save = None
+        if self.check_256sum:
+            try:
+                hash_to_save = bytes.fromhex(self.check_256sum)
+            except ValueError:
+                print("Warning: Invalid characters in hash string. Aborting save.")
+
+        if hasattr(self, 'download_id') and self.download_id:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "UPDATE downloads SET hash = ? WHERE id = ?", 
+                    (hash_to_save, self.download_id)
+                )
+                self.conn.commit()
+                print("Successfully updated hash in database.")
+            except Exception as e:
+                print(f"Failed to update hash in DB: {e}")
+
     def on_connections_changed(self, spinbutton):
         self.segments_count = spinbutton.get_value_as_int()
-        self.segment_size = self.file_size_bytes // self.segments_count
-        self.last_segment_size = self.file_size_bytes - (self.segment_size * (self.segments_count - 1))
-        self.part_files = [self.output_file + f"-part{i}" for i in range(self.segments_count)]
-        if self.download_engine == "curl":
+        
+        if self.segments_count > 0 and getattr(self, 'file_size_bytes', 0) > 0:
+            self.segment_size = self.file_size_bytes // self.segments_count
+            self.last_segment_size = self.file_size_bytes - (self.segment_size * (self.segments_count - 1))
+        
+        self.part_files = [getattr(self, 'output_file', '') + f"-part{i}" for i in range(self.segments_count)]
+        
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE downloads SET segments = ? WHERE id = ?", 
+                (self.segments_count, self.download_id)
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Failed to update segments in DB: {e}")
+
+        if getattr(self, 'download_engine', '') == "curl":
             GLib.idle_add(self.rebuild_progress_bar)
 
             css_provider = Gtk.CssProvider()
             if self.segments_count in (8, 9, 10):
                 css_data = {
                     8: b"""
-                        progressbar {
-                            padding: 0;
-                            margin: 0;
-                        }
-                        progressbar trough {
-                            min-width: 70px;
-                            min-height: 10px;
-                            border-radius: 0;
-                            padding: 0;
-                        }
-                        progressbar progress {
-                            min-height: 10px;
-                            border-radius: 0;
-                        }
+                        progressbar { padding: 0; margin: 0; }
+                        progressbar trough { min-width: 70px; min-height: 10px; border-radius: 0; padding: 0; }
+                        progressbar progress { min-height: 10px; border-radius: 0; }
                     """,
                     9: b"""
-                        progressbar {
-                            padding: 0;
-                            margin: 0;
-                        }
-                        progressbar trough {
-                            min-width: 62.2222222222px;
-                            min-height: 10px;
-                            border-radius: 0;
-                            padding: 0;
-                        }
-                        progressbar progress {
-                            min-height: 10px;
-                            border-radius: 0;
-                        }
+                        progressbar { padding: 0; margin: 0; }
+                        progressbar trough { min-width: 62.2222222222px; min-height: 10px; border-radius: 0; padding: 0; }
+                        progressbar progress { min-height: 10px; border-radius: 0; }
                     """,
                     10: b"""
-                        progressbar {
-                            padding: 0;
-                            margin: 0;
-                        }
-                        progressbar trough {
-                            min-width: 56px;
-                            min-height: 10px;
-                            border-radius: 0;
-                            padding: 0;
-                        }
-                        progressbar progress {
-                            min-height: 10px;
-                            border-radius: 0;
-                        }
+                        progressbar { padding: 0; margin: 0; }
+                        progressbar trough { min-width: 56px; min-height: 10px; border-radius: 0; padding: 0; }
+                        progressbar progress { min-height: 10px; border-radius: 0; }
                     """,
                 }
                 css_provider.load_from_data(css_data[self.segments_count])
@@ -1308,19 +1343,28 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     css_provider,
                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
                 )
-            print(f"Segment count updated to {self.segments_count}")
 
     def set_entry_text(self, entry):
-        if self.entry_locked:
-            return
-        self.entry_locked = True
+        print(f"in the way")
         text = entry.get_text()
         ascii_digits_only = ''.join(c for c in text if c in '0123456789')
-        if ascii_digits_only:
-            self.limit_speed = float(ascii_digits_only)
-            GLib.idle_add(entry.set_text,ascii_digits_only)
-            GLib.idle_add(entry.set_position,len(ascii_digits_only))
-        self.entry_locked = False
+        
+        self.limit_speed = int(ascii_digits_only) if ascii_digits_only else 0
+        
+        if text != ascii_digits_only:
+            GLib.idle_add(entry.set_text, ascii_digits_only)
+            GLib.idle_add(entry.set_position, len(ascii_digits_only))
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE downloads SET bandwidth_limit = ? WHERE id = ?", 
+                (self.limit_speed, self.download_id)
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Failed to update bandwidth limit: {e}")
+
     def build_download_view(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=10, margin_bottom=10, margin_start=20, margin_end=20)
         box.set_size_request(-1, -1)
@@ -1583,7 +1627,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def on_filename_changed(self, entry):
         raw_input = entry.get_text().strip()
         
-        # 1. Reset UI state
         entry.remove_css_class("error")
         self.status_label.set_text("")
         self.status_label.set_name("")
@@ -3390,7 +3433,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     if TRAY_SOCKET_PATH.startswith('\0') or os.path.exists(TRAY_SOCKET_PATH):
                         try:
                             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                                client.settimeout(0.5) # Don't wait forever
+                                client.settimeout(0.5)
                                 client.connect(TRAY_SOCKET_PATH)
                                 client.sendall(message.encode())
                         except Exception: 
@@ -3398,7 +3441,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 else:
                     try:
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-                            client.settimeout(0.5) # Don't wait forever
+                            client.settimeout(0.5)
                             client.connect(('127.0.0.1', WINDOWS_TRAY_PORT))
                             client.sendall(message.encode())
                     except Exception: 
@@ -3560,6 +3603,7 @@ class DownloaderAppManager(Gtk.Application):
         parser.add_argument("--user-agent", type=str, default=None, help="User agent string")
         parser.add_argument("--referer", type=str, default=None, help="Referer URL")
         parser.add_argument("--pass_check", action="store_true", default=False, help="Pass the URL check")
+        parser.add_argument("--check_256sum", type=str, default=None, help="Pass 256sum to check integrity")
         
         # Parse from index 1 to ignore the executable name itself which is very fat on the ram
         args, _ = parser.parse_known_args(args_list[1:])
@@ -3594,7 +3638,8 @@ class DownloaderAppManager(Gtk.Application):
             cookies=args.cookies,
             user_agent=args.user_agent,
             referer=args.referer,
-            pass_check=args.pass_check
+            pass_check=args.pass_check,
+            check_256sum=args.check_256sum
         )
         if os.name == 'nt': 
             unique_title = f"FlameGet Downloader - {win.port}"

@@ -18,6 +18,7 @@
 @define-color green #4CAF50;            /* Success / Download Button */
 @define-color orange #fb8c00;           /* Pause / Unfinished */
 @define-color cyan #00ACC1;             /* for Torrent */
+@define-color bgrey #546e7a;           /* Scheduled / Time */
 /* ==========================================================================
    GLOBAL WINDOW STYLES
    ========================================================================== */
@@ -73,7 +74,11 @@ menubutton > button:active{
 }
 .generic-button:disabled {
     background-image: none;
+    color: #888888;
     background-color: @background; 
+}
+.generic-button:disabled > label{
+    color: #888888;
 }
 /* Connected Buttons (Toolbar buttons grouped together) */
 .connected-button{
@@ -221,6 +226,9 @@ menubutton > button:active{
 }
 .navigation-sidebar row.unfinished-label {
     color: @orange;
+}
+.navigation-sidebar row.Scheduled-label {
+    color: @bgrey;
 }
 .navigation-sidebar row.Torrents-label {
     color: @cyan;
@@ -448,7 +456,7 @@ checkbutton check:disabled {
     background-color: @background; 
 }
 checkbutton label:disabled{
-    color: #6b7280;
+    color: #888888;
 }
 checkbutton:hover check {
     background-color: alpha(@blue, .1);    
@@ -515,7 +523,6 @@ dropdown > popover.menu listview row:hover {
     color: white;
 }
 
-
 /* ==========================================================================
    CONTEXT MENUS (Right-Click Popups)
    ========================================================================== */
@@ -540,9 +547,11 @@ popover.menu modelbutton {
 popover.menu modelbutton:hover {
     background-color: @foreground;
 }
-popover.menu modelbutton:disabled {
+
+popover.menu modelbutton:disabled > label{
     color: #888888;
 }
+
 popover.menu separator {
     background-color: @border-color;
 }
@@ -588,7 +597,7 @@ popover > contents {
     background-color: alpha(@red, .9);
 }
 .context-btn:disabled {
-    color: #6b7280; /* Grey out disabled options */
+    color: #888888;
 }
 
 /* ==========================================================================

@@ -18,7 +18,8 @@ if os.name == "nt":
             sys.exit(0)
 
 os.environ['GSK_RENDERER'] = 'cairo'
-import gi, signal, subprocess, shutil, time, json, re, socket, threading, tempfile
+import gi, signal, subprocess, shutil, json, re, socket, threading, tempfile
+import datetime, time
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gio, GObject, Gdk, GLib, Graphene, Pango
 from urllib.parse import urlparse, unquote, parse_qs
@@ -136,6 +137,7 @@ class DownloadItem(GObject.Object):
         self.date_added = row['date_added']
         try: self.scheduled_time = row['scheduled_time']
         except (IndexError, KeyError): self.scheduled_time = 0
+        self.bandwidth_limit = row['bandwidth_limit']
         self.category = row['category']
         self.file_directory = row['file_directory']
         self.url = row['url']
@@ -146,6 +148,7 @@ class DownloadItem(GObject.Object):
         self.quality_mod = row['quality_mod']
         self.download_playlist = bool(row['download_playlist'])
         self.finished_downloading = bool(row['finished_downloading'])
+        self.hash = row['hash']
 
     @GObject.Property(type=str)
     def name_prop(self): return self.filename
@@ -361,6 +364,7 @@ class FlameGetManager(Gtk.Application):
             ("Torrents", "xsi-folder-templates-symbolic", "Torrents"),
             ("Finished", "xsi-emblem-ok-symbolic", "Finished"),
             ("Unfinished", "xsi-emblem-synchronizing-symbolic", "Unfinished"),
+            ("Scheduled", "xsi-time-symbolic", "Scheduled")
         ]
 
         sidebar_frame.set_orientation(Gtk.Orientation.VERTICAL)
@@ -387,6 +391,8 @@ class FlameGetManager(Gtk.Application):
                 lbl = Gtk.Label(label=tr(label), xalign=0)
                 if label == "Unfinished":
                     row.add_css_class("unfinished-label")
+                elif label == "Scheduled":
+                    row.add_css_class("Scheduled-label")
                 elif label == "Finished":
                     row.add_css_class("Finished-label")
                 elif label == "Torrents":
@@ -612,7 +618,9 @@ class FlameGetManager(Gtk.Application):
                 "segments": item.segments if hasattr(item, "segments") else 8,
                 "is_audio": str(item.is_audio) if hasattr(item, "is_audio") else "False",
                 "quality": item.quality_mod if hasattr(item, "quality_mod") else "Best Available",
-                "playlist": str(item.download_playlist) if hasattr(item, "download_playlist") else "False"
+                "playlist": str(item.download_playlist) if hasattr(item, "download_playlist") else "False",
+                "bandwidth_limit": str(item.bandwidth_limit) or "0",
+                "hash": self.hash or None
             }
             redo_list.append((item, restart_data))
         for item, _ in redo_list:
@@ -695,7 +703,7 @@ class FlameGetManager(Gtk.Application):
 
             cmd.extend(["--segments", str(int(data["segments"]))])
             cmd.extend(["--id", "-1"])
-            cmd.extend(["--speed-limit", str(self.app_settings.get("global_speed_limit"))])
+            cmd.extend(["--speed-limit", str(data["bandwidth_limit"]) or str(self.app_settings.get("global_speed_limit", "0"))])
 
             print("data[is_audio]: ",data["is_audio"])
             if data["is_audio"] == "True":
@@ -704,6 +712,9 @@ class FlameGetManager(Gtk.Application):
                 cmd.append("--playlist")
             if data["quality"]:
                 cmd.extend(["--quality", data["quality"]])
+
+            if data["hash"] != None:
+                cmd.extend(["--check_256sum", data["hash"]])
 
             subprocess.Popen(cmd, env=worker_env)
 
@@ -1787,6 +1798,18 @@ class FlameGetManager(Gtk.Application):
         grid_std.attach(lbl_seg, 0, 1, 1, 1)
         grid_std.attach(self.spin_seg, 1, 1, 1, 1)
 
+        bw_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        speed_limit_label = Gtk.Label(label=f"{tr("Limit Bandwidth")}:", xalign=0)
+        grid_std.attach(speed_limit_label, 0, 3, 1, 1)
+
+        self.spin_bw = Gtk.SpinButton.new_with_range(0, 100000, 1)
+        self.spin_bw.set_value(0)
+        self.spin_bw.set_hexpand(True)
+        
+        bw_box.append(self.spin_bw)
+        bw_box.append(Gtk.Label(label="KB/s"))
+        grid_std.attach(bw_box, 1, 3, 1, 1)
+
         self.cached_grids["standard"] = grid_std
 
         grid_yt = Gtk.Grid(column_spacing=12, row_spacing=12)
@@ -1954,61 +1977,6 @@ class FlameGetManager(Gtk.Application):
         content_area.append(sep)
         action_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 
-        self.expander_schedule = Gtk.Expander(label=tr("Schedule Start Time"))
-        schedule_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        schedule_box.set_margin_top(15)
-        
-        dt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        dt_box.set_halign(Gtk.Align.CENTER)
-
-        now = time.localtime()
-
-        self.spin_day = Gtk.SpinButton.new_with_range(1, 31, 1)
-        self.spin_day.set_value(now.tm_mday)
-        self.spin_day.add_css_class("entry")
-        
-        self.spin_month = Gtk.SpinButton.new_with_range(1, 12, 1)
-        self.spin_month.set_value(now.tm_mon)
-        self.spin_month.add_css_class("entry")
-
-        self.spin_year = Gtk.SpinButton.new_with_range(now.tm_year, now.tm_year + 5, 1)
-        self.spin_year.set_value(now.tm_year)
-        self.spin_year.add_css_class("entry")
-
-        self.spin_hour = Gtk.SpinButton.new_with_range(0, 23, 1)
-        self.spin_hour.set_value(now.tm_hour)
-        self.spin_hour.add_css_class("entry")
-
-        self.spin_min = Gtk.SpinButton.new_with_range(0, 59, 1)
-        self.spin_min.set_value(now.tm_min) 
-        self.spin_min.add_css_class("entry")
-
-        def sep_lbl(txt): return Gtk.Label(label=txt)
-
-        dt_box.append(self.spin_day)
-        dt_box.append(sep_lbl("/"))
-        dt_box.append(self.spin_month)
-        dt_box.append(sep_lbl("/"))
-        dt_box.append(self.spin_year)
-        dt_box.append(sep_lbl("   @   "))
-        dt_box.append(self.spin_hour)
-        dt_box.append(sep_lbl(":"))
-        dt_box.append(self.spin_min)
-
-        schedule_box.append(dt_box)
-
-        self.lbl_schedule_info = Gtk.Label(label=tr("Download will start immediately."))
-        self.lbl_schedule_info.add_css_class("caption")
-        self.lbl_schedule_info.add_css_class("dim-label")
-        schedule_box.append(self.lbl_schedule_info)
-
-        self.expander_schedule.set_child(schedule_box)
-        
-        for s in [self.spin_day, self.spin_month, self.spin_year, self.spin_hour, self.spin_min]:
-            s.connect("value-changed", self.update_schedule_label)
-        self.expander_schedule.connect("notify::expanded", self.update_schedule_label)
-        content_area.append(self.expander_schedule)
-        
         row_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
 
         self.btn_queue = Gtk.Button(label=tr("Add To Queue"))
@@ -2217,13 +2185,13 @@ class FlameGetManager(Gtk.Application):
         
     def on_start_download_clicked(self, btn, dialog, local_torrent_path):
         url = self.entry_url.get_text().strip()
-        if url == "":
+        if not self.is_valid_url(url):
             return
         if ".m3u8" in url.lower() or ".ts" in url.lower():
             self.notify_user_about_hls_video()
             return
         mode = self.dialog_stack.get_visible_child_name()
-
+        speed_limit = self.spin_bw.get_value()
         if mode == "youtube":
             is_audio = (self.dd_mode.get_selected() == 1)
             quality_mod = self.dd_quality.get_model().get_string(self.dd_quality.get_selected())
@@ -2238,7 +2206,7 @@ class FlameGetManager(Gtk.Application):
             print(f"Starting YouTube DL: {url} | Audio: {is_audio} | Playlist: {download_playlist}")
             threading.Thread(
                 target=self.start_yt_dlp_download_url,
-                args=(dialog, ext, is_audio, quality_mod, download_playlist, include_subs, include_thumb),
+                args=(dialog, ext, is_audio, quality_mod, download_playlist, include_subs, include_thumb, speed_limit),
                 daemon=True
             ).start()
         elif mode == "torrent_prompt":
@@ -2274,7 +2242,7 @@ class FlameGetManager(Gtk.Application):
                 return
 
             indexes_string = ",".join(selected_indices)
-            filename = self.get_unique_filename(os.path.splitext(self.entry_name.get_text())[0])
+            filename = addOn.check_and_fix_filename(self.db, self.download_folder, self.entry_name.get_text())
             meta_path = os.path.join(self.download_folder, filename + ".meta.json")
             if self.torrent_files_data:
                 data = {
@@ -2284,12 +2252,12 @@ class FlameGetManager(Gtk.Application):
                 with open(meta_path, 'w') as f:
                     json.dump(data, f)
             
-            self.start_download_url(None, dialog, filename, 8, torrent_indices=indexes_string, torrent_files_data=self.torrent_files_data)
+            self.start_download_url(None, dialog, filename, 8, torrent_indices=indexes_string, torrent_files_data=self.torrent_files_data, bandwidth_limit=speed_limit)
         else:
             segments = self.spin_seg.get_value_as_int()
-            filename = self.get_unique_filename(self.entry_name.get_text())
+            filename = addOn.check_and_fix_filename(self.db, self.download_folder, self.entry_name.get_text())
             print(f"Starting Standard DL: {url} | Segments: {segments}")
-            self.start_download_url(btn, dialog, filename, segments)
+            self.start_download_url(btn, dialog, filename, segments, bandwidth_limit=speed_limit)
         
         if mode != "torrent_prompt":
             self.show_toast_popup(f"{tr("Starting The Downloader Please Wait...")}")
@@ -2427,7 +2395,7 @@ class FlameGetManager(Gtk.Application):
                             if clean_name.startswith("./"): clean_name = clean_name[2:]
                             name = clean_name.split("/")[0] if "/" in clean_name else clean_name
                         
-                        GLib.idle_add(self.entry_name.set_text, self.get_unique_filename(name))
+                        GLib.idle_add(self.entry_name.set_text, addOn.check_and_fix_filename(self.db, self.download_folder, name))
                         GLib.idle_add(self.entry_name.set_sensitive, False)
 
                         path_parts = current_path.replace("\\", "/").split("/")
@@ -3119,7 +3087,7 @@ class FlameGetManager(Gtk.Application):
         while i < selection.get_size():
             idx = selection.get_nth(i)
             item = selection_model.get_model().get_item(idx)
-            can_delete = item.status in ("Paused", "Stopped", "Finished")
+            can_delete = item.status in ("Paused", "Stopped", "Finished", "Scheduled")
             i += 1
         if not can_delete:
             self.show_toast_popup(f"{tr("You Can't Delete Items During a Download. Please Stop The Operation First.")}", color="red_toast")
@@ -3279,22 +3247,42 @@ class FlameGetManager(Gtk.Application):
         return True
 
     def check_scheduled_tasks(self):
+        now = time.time()
+        cursor = self.db.conn.cursor()
+        
         try:
-            now = time.time()
-            cursor = self.db.conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM downloads WHERE status = 'downloading'")
+            active_downloads = cursor.fetchone()[0]
             
+            max_concurrent = int(self.app_settings.get("max_concurrent_downloads", "1"))
+            available_slots = max_concurrent - active_downloads
+            
+            if available_slots <= 0:
+                return
+
             cursor.execute("""
                 SELECT id, url, filename, file_size_bytes, file_directory, segments, 
-                    is_audio, quality_mod, download_playlist 
+                    is_audio, quality_mod, download_playlist, bandwidth_limit, priority 
                 FROM downloads 
-                WHERE status = 'Scheduled' AND scheduled_time > 0 AND scheduled_time <= ?
-            """, (now,))
+                WHERE status = 'Scheduled' AND scheduled_time >= 0 AND scheduled_time <= ?
+                ORDER BY 
+                    CASE priority
+                        WHEN 'High' THEN 1
+                        WHEN 'Normal' THEN 2
+                        WHEN 'Low' THEN 3
+                        ELSE 4
+                    END ASC,
+                    scheduled_time ASC
+                LIMIT ?
+            """, (now, available_slots))
             
             due_tasks = cursor.fetchall()
-            
-            for task in due_tasks:
-                print(f"⏰ Scheduled time reached for: {task['filename']}. Starting download...")
-                
+        except Exception as e:
+            print(f"Database error while fetching schedules: {e}")
+            return
+        
+        for task in due_tasks:
+            try:
                 cursor.execute("UPDATE downloads SET status = 'downloading' WHERE id = ?", (task['id'],))
                 self.db.conn.commit()
 
@@ -3309,6 +3297,7 @@ class FlameGetManager(Gtk.Application):
                 args = [executable_path]
                 if not is_compiled:
                     args.append(os.path.abspath(self.downloader_script_path))
+                    
                 cmd = [
                     *args,
                     task['url'],
@@ -3319,7 +3308,11 @@ class FlameGetManager(Gtk.Application):
 
                 cmd.extend(["--segments", str(int(task['segments']))])
                 cmd.extend(["--id", str(task['id'])])
-                cmd.extend(["--speed-limit", str(speed_limit)])
+                
+                task_limit = int(task["bandwidth_limit"])
+                final_limit = str(task_limit) if task_limit > 0 else str(speed_limit)
+                cmd.extend(["--speed-limit", final_limit])
+                
                 cmd.append("--in_minimize_mode")
 
                 if task['is_audio']: cmd.append("--audio")
@@ -3328,13 +3321,15 @@ class FlameGetManager(Gtk.Application):
 
                 subprocess.Popen(cmd, env=worker_env)
                 
-                self.show_toast_popup(f"{tr('Scheduled Start:')} {task['filename']}")
+                self.show_toast_popup(f"{tr('Scheduled Start')} ({task['priority']}): {task['filename']}")
                 
-            if due_tasks:
-                GLib.idle_add(self.update_stats_labels)
-
-        except Exception as e:
-            print(f"Error checking scheduled tasks: {e}")
+            except Exception as e:
+                import traceback
+                print(f"Error starting scheduled task {task['filename']}: {e}")
+                traceback.print_exc()
+            
+        if due_tasks:
+            GLib.idle_add(self.update_stats_labels)
 
     def update_stats_labels(self):
         try:
@@ -3423,6 +3418,8 @@ class FlameGetManager(Gtk.Application):
         if cat == "Finished":
             all_rows = self.db.get_downloads("All")
             return [r for r in all_rows if r['status'] == "Finished"]
+        elif cat == "Scheduled":
+            return self.db.get_downloads("Scheduled")
         elif cat == "Unfinished":
             all_rows = self.db.get_downloads("All")
             return [r for r in all_rows if r['status'] in ["downloading", "Stopped", "Paused"]]
@@ -3453,6 +3450,11 @@ class FlameGetManager(Gtk.Application):
         if hasattr(stack, "sig_id_prog") and stack.sig_id_prog:
             if download_obj.handler_is_connected(stack.sig_id_prog):
                 download_obj.disconnect(stack.sig_id_prog)
+        if download_obj.status == "Scheduled":
+            pretty_time = self.format_scheduled_time(download_obj.scheduled_time)
+            hitbox.set_tooltip_text(f"{tr('Scheduled for:')}  {pretty_time}")
+        else:
+            hitbox.set_tooltip_text("")
 
         stack.sig_id_stat = download_obj.connect("notify::status-prop", lambda obj, pspec: self._update_status_ui(stack, obj))
         stack.sig_id_prog = download_obj.connect("notify::progress-prop", lambda obj, pspec: self._update_status_ui(stack, obj))
@@ -3514,7 +3516,7 @@ class FlameGetManager(Gtk.Application):
             markup = f"<span color='#00ACC1'>{tr('Verifying Checksum')}</span>"
 
         elif data.status == "Scheduled":
-            markup = f"<span color='#fb8c00'>{tr('Scheduled')}</span>"
+            markup = f"<span color='#546e7a'>{tr('Scheduled')}</span>"
             
         elif data.status == "Paused":
             if data.finished_downloading:
@@ -3624,6 +3626,26 @@ class FlameGetManager(Gtk.Application):
         tail = keep - head
         return f"{base[:head]}…{base[-tail:]}{ext}"
 
+    def format_scheduled_time(self, unix_timestamp):
+        if not unix_timestamp or unix_timestamp <= 0:
+            return ""
+
+        dt = datetime.datetime.fromtimestamp(unix_timestamp)
+        now = datetime.datetime.now()
+        
+        time_diff = dt.date() - now.date()
+        
+        time_str = dt.strftime("%I:%M %p")
+        
+        if time_diff.days == 0:
+            return f"{tr("Today at")} {time_str}"
+        elif time_diff.days == 1:
+            return f"{tr("Tomorrow at")} {time_str}"
+        elif time_diff.days < 7:
+            return f"{dt.strftime('%A')} {tr("at")} {time_str}" 
+        else:
+            return dt.strftime(f"%b %d {tr("at")} %I:%M %p")
+
     def _setup_status(self, factory, item):
         stack = Gtk.Stack()
         stack.set_hexpand(True)
@@ -3655,13 +3677,14 @@ class FlameGetManager(Gtk.Application):
                 check.set_active(selection.contains(idx))
         self._syncing = False
 
-    def start_download_url(self, btn, dialog, filename, segments, torrent_indices="None", torrent_files_data="None"):
+    def start_download_url(self, btn, dialog, filename, segments, torrent_indices="None", torrent_files_data="None", bandwidth_limit="0"):
         url = self.raw_file_url
             
         if not filename:
             filename = self.get_filename(url)
 
-        filename = self.get_unique_filename(filename)
+        filename = addOn.check_and_fix_filename(self.db, self.download_folder, filename)
+
         base, ext = os.path.splitext(filename)
         is_torrent = url.startswith("magnet:?") or url.endswith(".torrent")
 
@@ -3673,7 +3696,7 @@ class FlameGetManager(Gtk.Application):
                     filename = base + url_ext
             else:
                 filename = base
-        speed_limit = self.app_settings.get("global_speed_limit", "0")
+        speed_limit = bandwidth_limit if bandwidth_limit != "0" else self.app_settings.get("global_speed_limit", "0")
         if is_torrent: 
             tracker_list = []
             if hasattr(self, "trackers_store") and self.trackers_store:
@@ -3723,9 +3746,9 @@ class FlameGetManager(Gtk.Application):
         except:
             print("Starting failed")
 
-    def start_yt_dlp_download_url(self, dialog, ext, is_audio, quality_mod, download_playlist, include_subs=False, include_thumb=False):
+    def start_yt_dlp_download_url(self, dialog, ext, is_audio, quality_mod, download_playlist, include_subs=False, include_thumb=False, bandwidth_limit="0"):
         segments = self.spin_seg.get_value_as_int()
-        speed_limit = self.app_settings.get("global_speed_limit", "0")
+        speed_limit = bandwidth_limit if bandwidth_limit != "0" else self.app_settings.get("global_speed_limit", "0")
         custom_name = self.yt_entry_name.get_text().strip()
         try:
             worker_env = os.environ.copy()
@@ -3766,48 +3789,124 @@ class FlameGetManager(Gtk.Application):
         except Exception as e:
             print(f"Starting failed {e}")
 
-    def update_schedule_label(self, *args):
-        if not self.expander_schedule.get_expanded():
-            self.lbl_schedule_info.set_text(tr("Download will start immediately."))
-            return
-
-        try:
-            ts = self.get_schedule_timestamp()
-            now = time.time()
-            
-            if ts <= now:
-                self.lbl_schedule_info.set_text(tr("Time is in the past. Will start immediately."))
-            else:
-                diff = ts - now
-                mins = int(diff / 60)
-                hours = int(mins / 60)
-                mins = mins % 60
-                
-                readable_date = time.strftime("%a, %d %b %H:%M", time.localtime(ts))
-                self.lbl_schedule_info.set_text(f"{tr('Starts on:')} {readable_date} ({tr("in")} {hours}{tr("h")} {mins}{tr("m")})")
-        except:
-            self.lbl_schedule_info.set_text(tr("Invalid Date"))
-
-    def get_schedule_timestamp(self):
-        day = self.spin_day.get_value_as_int()
-        month = self.spin_month.get_value_as_int()
-        year = self.spin_year.get_value_as_int()
-        hour = self.spin_hour.get_value_as_int()
-        minute = self.spin_min.get_value_as_int()
-        
-        return time.mktime((year, month, day, hour, minute, 0, 0, 0, -1))
-
     def on_queue_clicked(self, btn, directory, dialogue):
-        scheduled_time = 0
+        entry_url = self.entry_url.get_text()
+        if not self.is_valid_url(entry_url): return
+        settings_window = Gtk.Window(title=tr("Queue Settings"), transient_for=dialogue, modal=True, destroy_with_parent=True)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        main_box.set_margin_top(15)
+        main_box.set_margin_bottom(15)
+        main_box.set_margin_start(15)
+        main_box.set_margin_end(15)
+
+        schedule_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         
-        if self.expander_schedule.get_expanded():
+        calendar = Gtk.Calendar()
+        schedule_container.append(calendar)
+
+        time_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        time_box.set_halign(Gtk.Align.CENTER)
+        
+        now = time.localtime()
+        spin_hour = Gtk.SpinButton.new_with_range(0, 23, 1)
+        spin_hour.set_value(now.tm_hour)
+
+        spin_min = Gtk.SpinButton.new_with_range(0, 59, 1)
+        spin_min.set_value(now.tm_min)
+
+        time_box.append(Gtk.Label(label=tr("Time:")))
+        time_box.append(spin_hour)
+        time_box.append(Gtk.Label(label=tr("h")))
+
+        time_box.append(Gtk.Label(label=":"))
+        time_box.append(spin_min)
+        time_box.append(Gtk.Label(label=tr("m")))
+
+
+        schedule_container.append(time_box)
+        
+        main_box.append(schedule_container)
+
+        priority_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        priority_box.append(Gtk.Label(label=tr("Download Priority:")))
+        
+        priority_list = ["High", "Normal", "Low"]
+        priority_model = Gtk.StringList.new([tr(opt) for opt in priority_list])
+        dd_priority = Gtk.DropDown.new(priority_model, None)
+        dd_priority.set_hexpand(True)
+        dd_priority.set_selected(1)
+        priority_box.append(dd_priority)
+        priority_box.set_hexpand(True)
+        main_box.append(priority_box)
+
+        bw_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        check_bw = Gtk.CheckButton(label=tr("Limit Bandwidth"))
+        bw_box.append(check_bw)
+
+        spin_bw = Gtk.SpinButton.new_with_range(1, 100000, 1)
+        spin_bw.set_value(1000)
+        spin_bw.set_sensitive(False)
+        check_bw.connect("toggled", lambda b: spin_bw.set_sensitive(b.get_active()))
+        
+        bw_box.append(spin_bw)
+        bw_box.append(Gtk.Label(label="KB/s"))
+        main_box.append(bw_box)
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        action_box.set_halign(Gtk.Align.END)
+        action_box.set_margin_top(10)
+
+        btn_cancel = Gtk.Button(label=tr("Cancel"))
+        btn_apply = Gtk.Button(label=tr("Apply"))
+        btn_apply.add_css_class("green-btn")
+
+        action_box.append(btn_cancel)
+        action_box.append(btn_apply)
+        main_box.append(action_box)
+
+        settings_window.set_child(main_box)
+
+        def on_cancel(button):
+            settings_window.destroy()
+
+        def on_apply(button):
+            scheduled_time = 0
+            
             try:
-                target_ts = self.get_schedule_timestamp()
+                cal_date = calendar.get_date()
+                
+                t = time.struct_time((
+                    cal_date.get_year(),
+                    cal_date.get_month(),
+                    cal_date.get_day_of_month(),
+                    int(spin_hour.get_value()),
+                    int(spin_min.get_value()),
+                    0, 0, 0, -1
+                ))
+                
+                target_ts = time.mktime(t)
                 if target_ts > time.time():
                     scheduled_time = target_ts
-            except:
+            except ValueError:
                 pass
 
+            priority = priority_model.get_string(dd_priority.get_selected())
+            bandwidth_limit = int(spin_bw.get_value()) if check_bw.get_active() else 0
+
+            self.apply_queue(btn, directory, dialogue, scheduled_time, priority, bandwidth_limit)
+            
+            settings_window.destroy()
+
+        btn_cancel.connect("clicked", on_cancel)
+        btn_apply.connect("clicked", on_apply)
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self.on_window_key_pressed, settings_window)
+        settings_window.add_controller(key_controller)
+        
+        GLib.idle_add(addOn.set_titlebar_theme, settings_window.get_title(), self.app_settings.get("theme_mode"))
+        settings_window.present()
+
+    def apply_queue(self, btn, directory, dialogue, scheduled_time, priority, bandwidth_limit):
         mode = self.dialog_stack.get_visible_child_name()
         
         is_audio = False
@@ -3820,11 +3919,33 @@ class FlameGetManager(Gtk.Application):
             quality = self.dd_quality.get_model().get_string(self.dd_quality.get_selected())
             quality_mod = quality if quality.strip() != "" else "Best Available"
             download_playlist = self.check_playlist.get_active()
-            ext = "."+self.dd_fmt.get_model().get_string(self.dd_fmt.get_selected())
+            ext = "." + self.dd_fmt.get_model().get_string(self.dd_fmt.get_selected())
             
-        self.process_queue_entry(btn, directory, dialogue, ext, is_audio, quality_mod, download_playlist, scheduled_time)
+        threading.Thread(
+            target=self.process_queue_entry,
+            args=(
+                btn, 
+                directory, 
+                dialogue, 
+                ext, 
+                is_audio, 
+                quality_mod, 
+                download_playlist, 
+                scheduled_time,
+                priority,
+                bandwidth_limit
+            ), 
+            daemon=True
+        ).start()
 
-    def process_queue_entry(self, btn, directory, dialogue, ext, is_audio, quality_mod, download_playlist, scheduled_time=0):
+        self.add_url_dialog = None
+        self.show_toast_popup("The url is being processed, please wait some seconds...")
+        dialogue.destroy()
+
+    def process_queue_entry(
+        self, btn, directory, dialogue, ext, is_audio, quality_mod, 
+        download_playlist, scheduled_time=0, priority="Normal", bandwidth_limit=0
+    ):
         if self.raw_file_url.strip() == "":
             return
         cursor = self.db.conn.cursor()
@@ -3860,7 +3981,8 @@ class FlameGetManager(Gtk.Application):
             collect_indices(self.root_node_store)
             
         indexes_string = ",".join(selected_indices)
-        filename = self.get_unique_filename(filename)
+        directory_folder = directory.get_text()
+        filename = addOn.check_and_fix_filename(self.db, directory_folder, filename)
         meta_path = os.path.join(directory.get_text(), filename + ".meta.json")
         
         if hasattr(self, 'torrent_files_data') and self.torrent_files_data:
@@ -3874,36 +3996,36 @@ class FlameGetManager(Gtk.Application):
             except Exception as e:
                 print("Failed to save meta json for queue:", e)
 
-        print("fetched_name", fetched_name)
-        
         if not filename or filename == "index.html":
             filename = fetched_name or "download.dat"
             
-        filename = self.get_unique_filename(filename)
+        filename = addOn.check_and_fix_filename(self.db, directory_folder, filename)
+
         base = filename.split('.')[0]
         if ext != None and not download_playlist:
             filename = base + ext
         elif download_playlist:
             filename = base
             
-        cat = self.categorize_filename(filename, is_torrent)
-        directory_folder = directory.get_text()
+        cat = addOn.categorize_filename(filename, is_torrent)
         
         date_added = time.time()
         
-        initial_status = "Paused"
-        if scheduled_time > 0:
-            initial_status = "Scheduled"
+        initial_status = "Scheduled"
         
         cursor.execute("""
             INSERT INTO downloads
-            (filename, size, status, progress, speed, time_left, date_added, category, file_directory, url, pid, file_size_bytes, segments, is_audio, quality_mod, download_playlist, scheduled_time)
-            VALUES (?, ?, ?, 0, '--', '--', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (filename, size_str, initial_status, date_added, cat, directory_folder, self.raw_file_url, -1, file_size_bytes, segments, is_audio, quality_mod, download_playlist, scheduled_time))
+            (filename, size, status, progress, speed, time_left, date_added, category, 
+            file_directory, url, pid, file_size_bytes, segments, is_audio, quality_mod, 
+            download_playlist, scheduled_time, priority, bandwidth_limit)
+            VALUES (?, ?, ?, 0, '--', '--', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            filename, size_str, initial_status, date_added, cat, directory_folder, 
+            self.raw_file_url, -1, file_size_bytes, segments, is_audio, quality_mod, 
+            download_playlist, scheduled_time, priority, bandwidth_limit
+        ))
 
         self.db.conn.commit()
-        self.add_url_dialog = None
-        dialogue.destroy()
 
     def send_command(self, cmd, target_socket=None):
         # ONLY FOR WINDOWS
@@ -3975,7 +4097,7 @@ class FlameGetManager(Gtk.Application):
 
                 cmd.extend(["--segments", str(int(item.segments))])
                 cmd.extend(["--id", str(item.id)])
-                cmd.extend(["--speed-limit", str(speed_limit)])
+                cmd.extend(["--speed-limit", str(item.bandwidth_limit) or str(speed_limit)])
 
                 if in_minimize_mode:
                     cmd.append("--in_minimize_mode")
@@ -4119,21 +4241,22 @@ class FlameGetManager(Gtk.Application):
         os.path.basename(path)
         return path
 
-    def get_unique_filename(self, original_name):
-        base, ext = os.path.splitext(original_name)
-        candidate = original_name
-        counter = 1
-
-        while self.filename_exists(candidate):
-            candidate = f"{base}({counter}){ext}"
-            counter += 1
-
-        return candidate
-
-    def filename_exists(self, filename):
-        cursor = self.db.conn.cursor()
-        cursor.execute("SELECT 1 FROM downloads WHERE status = 'Finished' AND filename = ?", (filename,))
-        return cursor.fetchone() is not None
+    def is_valid_url(self, text):
+        text = text.strip()
+        if not text:
+            return False
+            
+        if text.lower().startswith("magnet:?"):
+            return True
+            
+        pattern = re.compile(
+            r'^(?:(?:https?|ftp)://)?'
+            r'(?:[\w-]+\.)+[a-z]{2,}'
+            r'(?:/\S*)?$',
+            re.IGNORECASE
+        )
+        
+        return bool(pattern.match(text))
 
     def on_url_entry_changed(self, entry):
         raw_input = entry.get_text().strip()

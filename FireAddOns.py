@@ -268,6 +268,29 @@ def _delete_active_part_worker(filename, directory):
         except OSError:
             pass
 
+def check_and_fix_filename(db, directory, name_to_check):
+    cursor = db.conn.cursor()
+    def exists_in_db(test_name):
+        cursor.execute(
+            "SELECT 1 FROM downloads WHERE filename = ? AND file_directory = ?", 
+            (test_name, directory)
+        )
+        return cursor.fetchone() is not None
+
+    if not exists_in_db(name_to_check):
+        return name_to_check
+
+    base_name, ext = os.path.splitext(name_to_check)
+    new_name = name_to_check
+    counter = 1
+
+    while exists_in_db(new_name):
+        print(f"'{new_name}' already exists in the database! Trying next number...")
+        new_name = f"{base_name}({counter}){ext}"
+        counter += 1
+
+    return new_name
+
 def find_active_part_yt_dlp(filename, directory):
     base_name = os.path.splitext(filename)[0]
     for name in os.listdir(directory):

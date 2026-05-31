@@ -196,6 +196,7 @@ class DownloadDatabase:
 
     def create_table(self):
         cursor = self.conn.cursor()
+        
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS downloads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,16 +217,32 @@ class DownloadDatabase:
                 quality_mod TEXT,
                 download_playlist BOOL,
                 scheduled_time REAL DEFAULT 0,
-                finished_downloading BOOL DEFAULT False
+                bandwidth_limit INT DEFAULT 0,
+                priority TEXT DEFAULT 'Normal',
+                finished_downloading BOOL DEFAULT False,
+                hash BLOB
             )
         ''')
-        cursor.execute('SELECT count(*) FROM downloads')
+        
+        cursor.execute("PRAGMA table_info(downloads)")
+        existing_columns = [info[1] for info in cursor.fetchall()]
+        
+        if "priority" not in existing_columns:
+            cursor.execute("ALTER TABLE downloads ADD COLUMN priority TEXT DEFAULT 'Normal'")
+            
+        if "bandwidth_limit" not in existing_columns:
+            cursor.execute("ALTER TABLE downloads ADD COLUMN bandwidth_limit INT DEFAULT 0")
+        
+        if "hash" not in existing_columns:
+            cursor.execute("ALTER TABLE downloads ADD COLUMN hash BLOB")
         self.conn.commit()
 
     def get_downloads(self, category="All"):
         cursor = self.conn.cursor()
         if category == "All":
             cursor.execute('SELECT * FROM downloads')
+        elif category == "Scheduled":
+            cursor.execute('SELECT * FROM downloads WHERE status = ?', (category,))
         else:
             cursor.execute('SELECT * FROM downloads WHERE category = ?', (category,))
         return cursor.fetchall()
