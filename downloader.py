@@ -199,12 +199,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         if file_directory == "":
             self.app_settings = load_settings()
-            saved_dir = self.app_settings.get("default_download_dir")
-            if saved_dir and os.path.exists(saved_dir):
-                self.download_folder = saved_dir
         else:
-            self.download_folder = file_directory
-            self.app_settings = load_settings(self.download_folder)
+            self.app_settings = load_settings(file_directory)
+
+        saved_dir = self.app_settings.get("default_download_dir")
+        
+        self.download_folder = self.get_download_dir(file_directory, saved_dir)
 
         self.output_file = os.path.join(self.download_folder, self.FileName)
         load_css(self.app_settings.get("theme_mode"))
@@ -292,6 +292,34 @@ class DownloadWindow(Gtk.ApplicationWindow):
         
         if HAS_SIGUSR1: signal.signal(signal.SIGUSR1, lambda signum, frame: GLib.idle_add(self.on_pause_clicked, None))
 
+    def get_download_dir(self, file_directory, saved_dir):
+        if saved_dir and os.path.exists(saved_dir):
+            download_folder = saved_dir
+        elif file_directory != "" and os.path.exists(file_directory):
+            download_folder = file_directory
+        else:
+            download_folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD) or GLib.get_home_dir()
+        
+        category_map = {
+            "Videos": "video_download_dir",
+            "Music": "music_download_dir",
+            "Pictures": "image_download_dir",
+            "Programs": "program_download_dir",
+            "Documents": "document_download_dir"
+        }
+
+        setting_key = category_map.get(self.category)
+        if setting_key: target_dir = self.app_settings.get(setting_key)
+        else: target_dir = download_folder
+
+        if not target_dir or not os.path.exists(target_dir):
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+            except Exception:
+                target_dir = download_folder
+
+        return target_dir
+
     def on_close_request(self, *args):
         if self.download_started:
             self.toggle_visibility()
@@ -324,7 +352,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if hasattr(self, 'aria_proc'):
             self.aria_proc.terminate()
 
-        self.pause_download()
+        self.pause_download(exit=True)
 
         if hasattr(self, 'conn'):
             try:
@@ -402,7 +430,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     f"-s{self.segments_count}",
                     "--connect-timeout=5",
                     "--timeout=5",
-                    "--max-tries=2",
+                    f"--max-tries={self.app_settings.get("max_retries", 5)}",
                     "--file-allocation=none",
                     "--auto-save-interval=0",
                     "--summary-interval=1",
@@ -506,11 +534,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 return
 
             if hasattr(self, 'download_id') and self.download_id != -1:
-                print("fetching data")
                 self.fetch_db_querry(self.download_id)
 
             if not self.file_size_bytes:
-                print("fetching no data")
                 self.is_supporting_range, file_size, filename = self.get_file_info(url, self.pass_check)
                 
                 if not self.FileName or self.FileName == "UNKNOWN":
@@ -576,6 +602,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             if self.limit_speed > 0: self.speed_limit_entry.set_text(str(self.limit_speed))  
             self.connections_spin.set_value(self.segments_count)
             self.checksum_entry.set_text(self.check_256sum or "")
+
     def parse_torrent_indices(self):
         self.parsed_indices = set()
         if hasattr(self, 'torrent_indices') and self.torrent_indices and self.torrent_indices != "None":
@@ -593,10 +620,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
             except Exception as e:
                 print(f"Error parsing indices: {e}")
 
-    def manage_torrent_metadata(self, action="save"):
+    def manage_torrent_metadata(self, action="save", on_complete_callback=None):
         if not self.is_torrent: return
         try:
             self.meta_path = os.path.join(self.download_folder, self.FileName + ".meta.json")
+            
             if action == "save":
                 if self.torrent_files_data:
                     data = {
@@ -605,6 +633,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     }
                     with open(self.meta_path, 'w') as f:
                         json.dump(data, f)
+                        
             elif action == "load":
                 self.torrent_files_data = []
                 if os.path.exists(self.meta_path):
@@ -613,117 +642,156 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         self.torrent_files_data = data.get("files", [])
                         self.torrent_indices = data.get("indices", "")
                         self.parse_torrent_indices()
+                        
+                    if on_complete_callback:
+                        GLib.idle_add(on_complete_callback)
                 else:
-                    save_path_template = tempfile.mkdtemp(prefix="flameget_torrent_", dir=self.runtime_dir)
-                    get_torrent_file_cmd = [
-                        addOn.FireFiles.aria2c_path,
-                        "--bt-metadata-only=true",
-                        "--bt-save-metadata=true",
-                        "-d", save_path_template,
-                        self.url
-                    ]
-
-                    try:
-                        download_proc = subprocess.run(
-                            get_torrent_file_cmd, 
-                            capture_output=True, 
-                            text=True, 
-                            timeout=60, 
-                            check=True,
-                            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {})
-                        )
-
-                        match = re.search(r"Saved metadata as (.*\.torrent)", download_proc.stdout)
-
-                        if match:
-                            generated_filename = match.group(1).strip()
-                            if os.path.exists(generated_filename):
-                                cmd = [addOn.FireFiles.aria2c_path, "-S", generated_filename]
-                                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
-                                
-                                output = proc.stdout
-                                name = "Unknown"
-                                total_size = "Unknown"
-                                torrent_files_data = []
-                                selected_indices = []
-                                lines = output.splitlines()
-                                file_mode = False
-                                current_path = None
-                                current_index = None
-
-                                for line in lines:
-                                    stripped = line.strip()
-                                    if stripped.startswith("Total Length:"):
-                                        total_size = stripped.split(":", 1)[1].strip()
-
-                                    if stripped.startswith("Name:"):
-                                        name = stripped.split(":", 1)[1].strip()
-                                        
-                                    if stripped.lower().startswith("files:"):
-                                        file_mode = True
-                                        continue
-                                    
-                                    if file_mode:
-                                        if line.startswith("===") or line.startswith("---") or line.startswith("idx|"):
-                                            continue
-
-                                        parts = line.split("|")
-                                        
-                                        if len(parts) >= 2:
-                                            col_idx = parts[0].strip()
-                                            
-                                            if col_idx.isdigit():
-                                                current_index = col_idx
-                                                current_path = parts[1].strip()
-                                            
-                                            elif col_idx == "" and current_path and current_index:
-                                                raw_size = parts[1].strip()
-                                                f_size = raw_size.split("(")[0].strip()
-                                                lower_path = current_path.lower()
-                                                
-                                                if "padding_file" in lower_path and "____" in lower_path:
-                                                    current_path = None; current_index = None; continue
-
-                                                if lower_path.endswith("thumbs.db") or lower_path.endswith(".ds_store") or lower_path.endswith("desktop.ini"):
-                                                    current_path = None; current_index = None; continue
-                                                
-                                                if name == "Unknown":
-                                                    clean_name = current_path
-                                                    if clean_name.startswith("./"):
-                                                        clean_name = clean_name[2:]
-                                                    name = clean_name.split("/")[0] if "/" in clean_name else clean_name
-                                                clean_full_path = current_path
-                                                if clean_full_path.startswith("./"):
-                                                    clean_full_path = clean_full_path[2:]
-                                                
-                                                torrent_files_data.append([clean_full_path, f_size, current_index])
-                                                current_path = None
-                                                current_index = None
-                                
-                                for file_info in torrent_files_data:
-                                    if file_info[2]: 
-                                        selected_indices.append(file_info[2])
-                                indexes_string = ",".join(selected_indices)
-                                self.torrent_files_data = torrent_files_data
-                                self.torrent_file_size = total_size
-                                self.torrent_indices = indexes_string
-
-                                if os.path.exists(save_path_template):
-                                    shutil.rmtree(save_path_template, ignore_errors=True)
-                    except subprocess.TimeoutExpired:
-                        GLib.idle_add(self.loading_lbl.set_text, "The process timed out while fetching metadata.")
-                        print("The process timed out while fetching metadata.")
-                    except subprocess.CalledProcessError as e:
-                        print(f"Aria2c crashed or returned an error: {e}")
+                    GLib.idle_add(self.loading_lbl.set_text, "Fetching metadata from peers... Please wait.")
+                    
+                    threading.Thread(
+                        target=self._fetch_metadata_worker, 
+                        args=(on_complete_callback,), daemon=True
+                    ).start()
 
         except Exception as e:
             print(f"Meta handling error: {e}")
 
+    def _fetch_metadata_worker(self, on_complete_callback):
+        save_path_template = tempfile.mkdtemp(prefix="flameget_torrent_", dir=self.runtime_dir)
+        
+        is_magnet = self.url.lower().startswith("magnet:")
+        generated_filename = None
+
+        try:
+            if is_magnet:
+                get_torrent_file_cmd = [
+                    addOn.FireFiles.aria2c_path,
+                    "--bt-metadata-only=true",
+                    "--bt-save-metadata=true",
+                    "--bt-stop-timeout=30", 
+                    "-d", save_path_template,
+                    self.url
+                ]
+                
+                download_proc = subprocess.run(
+                    get_torrent_file_cmd, 
+                    capture_output=True, text=True, timeout=45, check=True,
+                    **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {})
+                )
+                
+                match = re.search(r"Saved metadata as (.*\.torrent)", download_proc.stdout)
+                if match:
+                    generated_filename = match.group(1).strip()
+                    
+            else:
+                generated_filename = os.path.join(save_path_template, "target.torrent")
+                get_torrent_file_cmd = [
+                    addOn.FireFiles.aria2c_path,
+                    "--follow-torrent=false",
+                    "-d", save_path_template,
+                    "-o", "target.torrent",
+                    self.url
+                ]
+                
+                subprocess.run(
+                    get_torrent_file_cmd, 
+                    capture_output=True, text=True, timeout=15, check=True,
+                    **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {})
+                )
+
+            if generated_filename and os.path.exists(generated_filename):
+                cmd = [addOn.FireFiles.aria2c_path, "-S", generated_filename]
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10, 
+                                      **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
+                
+                self._parse_aria_show_output(proc.stdout)
+
+            if on_complete_callback:
+                GLib.idle_add(on_complete_callback)
+
+        except subprocess.TimeoutExpired:
+            GLib.idle_add(self.loading_lbl.set_text, "Timeout: Could not fetch torrent metadata.")
+            print("The process timed out while fetching metadata.")
+        except subprocess.CalledProcessError as e:
+            print(f"Aria2c crashed or returned an error. Exit code: {e.returncode}")
+            print(f"Error output: {e.stderr or e.stdout}")
+        finally:
+            if os.path.exists(save_path_template):
+                shutil.rmtree(save_path_template, ignore_errors=True)
+
+    def _parse_aria_show_output(self, output):
+        name = "Unknown"
+        total_size = "Unknown"
+        torrent_files_data = []
+        selected_indices = []
+        
+        file_mode = False
+        current_path = None
+        current_index = None
+
+        for line in output.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Total Length:"):
+                total_size = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("Name:"):
+                name = stripped.split(":", 1)[1].strip()
+            elif stripped.lower().startswith("files:"):
+                file_mode = True
+                continue
+            
+            if file_mode:
+                if line.startswith("===") or line.startswith("---") or line.startswith("idx|"):
+                    continue
+
+                parts = line.split("|")
+                if len(parts) >= 2:
+                    col_idx = parts[0].strip()
+                    
+                    if col_idx.isdigit():
+                        current_index = col_idx
+                        current_path = parts[1].strip()
+                    
+                    elif col_idx == "" and current_path and current_index:
+                        raw_size = parts[1].strip()
+                        f_size = raw_size.split("(")[0].strip()
+                        lower_path = current_path.lower()
+                        
+                        if "padding_file" in lower_path and "____" in lower_path:
+                            current_path, current_index = None, None
+                            continue
+
+                        if lower_path.endswith(("thumbs.db", ".ds_store", "desktop.ini")):
+                            current_path, current_index = None, None
+                            continue
+                        
+                        if name == "Unknown":
+                            clean_name = current_path[2:] if current_path.startswith("./") else current_path
+                            name = clean_name.split("/")[0] if "/" in clean_name else clean_name
+                            
+                        clean_full_path = current_path[2:] if current_path.startswith("./") else current_path
+                        
+                        torrent_files_data.append([clean_full_path, f_size, current_index])
+                        selected_indices.append(current_index)
+                        
+                        current_path, current_index = None, None
+        
+        self.new_torrent_name = name
+        self.torrent_files_data = torrent_files_data
+        self.torrent_file_size = total_size
+        self.torrent_indices = ",".join(selected_indices)
+
     def fetch_torrent_metadata(self):
         try:
             if not self.has_fetching_metadata: return
+            self.manage_torrent_metadata("load", on_complete_callback=self._build_torrent_tree)
+            
+        except Exception as e:
+            print(f"Metadata Fetch Error: {e}")
+            GLib.idle_add(self.status_label.set_text, tr("Failed to retrieve torrent info."))
+            self.has_fetching_metadata = False
 
-            self.manage_torrent_metadata("load")
+    def _build_torrent_tree(self):
+        try:
             self.root_node_store = Gio.ListStore(item_type=TorrentNode)
             
             if self.torrent_files_data:
@@ -782,14 +850,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
                 calc_dir_size(self.root_node_store)
 
-            if self.torrent_files_data:
                 self.manage_torrent_metadata("save")
-                GLib.idle_add(self.populate_torrent_ui)
-
+                self.populate_torrent_ui()
 
         except Exception as e:
-            print(f"Metadata Fetch Error: {e}")
-            GLib.idle_add(self.status_label.set_text, tr("Failed to retrieve torrent info."))
+            print(f"Tree Builder Error: {e}")
+            self.status_label.set_text(tr("Failed to build torrent tree."))
         finally:
             self.has_fetching_metadata = False
 
@@ -840,6 +906,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def populate_torrent_ui(self):
         self.download_started = False
         while child := self.torrent_files_ui_box.get_first_child():
+            if isinstance(child, Gtk.ScrolledWindow):
+                old_list_view = child.get_child()
+                if isinstance(old_list_view, Gtk.ListView):
+                    old_list_view.set_model(None) 
+            
             self.torrent_files_ui_box.remove(child)
 
         header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
@@ -880,6 +951,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         def setup_row(fact, list_item):
             expander = Gtk.TreeExpander()
             box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            expander.add_css_class("my-tree-list")
             box.set_margin_bottom(3)
             box.set_margin_top(3)
             chk = Gtk.CheckButton()
@@ -900,7 +972,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             expander.set_list_row(row)
 
             box = expander.get_child()
-            box.get_parent().add_css_class("my-tree-list")
             chk = box.get_first_child()
             icon = chk.get_next_sibling()
             name = icon.get_next_sibling()
@@ -1025,7 +1096,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.download_button.set_sensitive(False)
         GLib.idle_add(self.download_button.remove_css_class, "green-btn")
         GLib.idle_add(self.download_button.add_css_class, "generic-button")
-        self.download_button.set_label(tr("Fetching Data..."))
+        GLib.idle_add(self.download_button.set_label, tr("Fetching Data..."))
         return False
 
     def on_torrent_chk_toggled(self, checkbox):
@@ -1060,11 +1131,30 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         GLib.idle_add(self.download_button.add_css_class, "green-btn")
         GLib.idle_add(self.download_button.remove_css_class, "generic-button")
+        GLib.idle_add(self.download_button.set_label, tr("Download"))
         if self.canDownload:
             GLib.idle_add(self.download_button.set_sensitive, True)
         self.download_button.set_label(download_label)
-
         self.create_db_entry()
+
+        if hasattr(self, "new_torrent_name") and self.new_torrent_name:
+            # we remove the init lock we made
+            if os.path.exists(self.lock_file):
+                try: os.remove(self.lock_file)
+                except: pass
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                UPDATE downloads SET
+                    filename = ?
+                WHERE id = ?
+            """, (self.new_torrent_name, self.download_id))
+            self.conn.commit()
+
+            # we update to the new name and make the new lock
+            self.FileName = self.new_torrent_name
+            self.output_file = os.path.join(self.download_folder, self.FileName)
+            GLib.idle_add(self.editFileName_entry.set_text, self.FileName)
+            
         if self.auto_start:
             GLib.idle_add(self.on_download_clicked, None)
         return False
@@ -1571,9 +1661,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         button_box.append(self.download_button)
         button_box.append(self.openFile_button)
-        button_box.append(self.dragFile_button)
         button_box.append(self.pause_button)
         button_box.append(self.cancel_button)
+        button_box.append(self.dragFile_button)
 
         box.append(button_box)
         self.on_filename_changed(self.editFileName_entry)
@@ -1665,7 +1755,13 @@ class DownloadWindow(Gtk.ApplicationWindow):
         GLib.idle_add(self.download_button.set_sensitive, True)
         self.canDownload = True
         
-        self.FileName = base_name + self.original_ext
+        ext = ""
+        if hasattr(self, 'original_ext') and self.original_ext:
+            if self.original_ext.lower() != ".torrent":
+                ext = self.original_ext
+                
+        self.FileName = base_name + ext
+
         safe_filename = os.path.basename(self.FileName)
         self.output_file = os.path.join(self.download_folder, safe_filename)
         self.part_files = [self.output_file + f"-part{i}" for i in range(self.segments_count)]
@@ -1741,7 +1837,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         if self.is_torrent:
             selected_indices = []
-            self.expander.set_sensitive(False)
+            if self.expander != None: self.expander.set_sensitive(False)
             self.master_check.set_sensitive(False)
             def collect_indices(store):
                 if not store: return
@@ -2098,7 +2194,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.aria_proc = subprocess.Popen(cmd, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
 
         def connect_aria():
-            retries = 10
+            retries = self.app_settings.get("max_retries", 5)
             last_error = None
             from aria2p import Client, API 
             
@@ -2228,7 +2324,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 
                 if status == "complete" and self.current_download.followed_by_ids:
                     print("Metadata downloaded. Switching to actual torrent download...")
-                    self.update_download("Verifying Checksum", "--", "--", "--")
+                    self.update_download("Verifying Checksum", "--", "--")
                     new_gid = self.current_download.followed_by_ids[0]
                     
                     if hasattr(self, 'torrent_indices') and self.torrent_indices:
@@ -2297,7 +2393,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     )
                     GLib.idle_add(self.est_time_label.set_markup, markup_text)
                     if self.pause_button.get_label() != tr("Start Seeding"):
-                        self.update_download("Seeding", "--", "--", "--", finished_downloading=True)
+                        self.update_download("Seeding", "--", "--", finished_downloading=True)
                     
                     if self.pause_button.get_label() != tr("Stop Seeding"):
                         if self.pause_handler_id and self.pause_button.handler_is_connected(self.pause_handler_id):
@@ -2309,7 +2405,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         GLib.idle_add(self.download_button.set_visible, False)
                         GLib.idle_add(self.cancel_button.set_visible, False)
                         GLib.idle_add(self.openFile_button.set_visible, True)
-                        GLib.idle_add(self.dragFile_button.set_visible, True)
+                        GLib.idle_add(self.dragFile_button.set_visible, os.name != "nt")
 
                 else:
                     self.speed_str = self.current_download.download_speed_string() 
@@ -2355,7 +2451,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                                 else:
                                     status_text = tr("Stalled / No Peers")
                             is_verifying = True
-                            self.update_download("Verifying Checksum", "--", "--", "--")
+                            self.update_download("Verifying Checksum", "--", "--")
                             GLib.idle_add(self.progress_bars[0].add_css_class, "dashed-bar")
                             GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
                         else:
@@ -2408,7 +2504,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                             )
                         else:
                             ver_percent = (ver_len / total_len) * 100
-                            self.update_download("Verifying Checksum", "--", "--", "--")
+                            self.update_download("Verifying Checksum", "--", "--")
                             GLib.idle_add(self.est_time_label.set_markup, f"{tr('Verifying Checksum')} <b><span font_features='tnum=1'>{ver_percent:.1f}%</span></b>")
                     else:
                         UI_size_str = self.size_str
@@ -2899,8 +2995,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 os.remove(path)
 
         GLib.idle_add(self.openFile_button.set_visible, True)
-        GLib.idle_add(self.dragFile_button.set_visible, True)
-        self.update_download("Finished", "--", "--", "--", finished_downloading=True)
+        GLib.idle_add(self.dragFile_button.set_visible, os.name != "nt")
+        self.update_download("Finished", "--", "--", finished_downloading=True)
         
         if self.app_settings.get("notifications"):
            title = tr("Download Finished")
@@ -3117,7 +3213,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         self.report_pid(msg)
         if self.download_started and not self.is_paused:
-            self.update_download("downloading", self.progress, self.speed_str, self.eta_str)
+            self.update_download("downloading", self.progress, self.speed_str)
         return True
         
     def open_file(self, widget):
@@ -3170,15 +3266,15 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         cursor.execute("""
             INSERT INTO downloads
-            (filename, size, status, progress, speed, time_left, date_added, category, file_directory, url, pid, file_size_bytes, segments, is_audio, quality_mod, download_playlist, scheduled_time, finished_downloading)
-            VALUES (?, ?, 'Paused', 0, '--', '--', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            (filename, size, status, progress, speed, date_added, category, file_directory, url, pid, file_size_bytes, segments, is_audio, quality_mod, download_playlist, scheduled_time, finished_downloading)
+            VALUES (?, ?, 'Paused', 0, '--', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
         """, (filename, size, today_time, cat, directory_folder, raw_file_url, pid, file_size_bytes, segments, is_audio, quality_mode, is_playlist))
 
         self.conn.commit()
         self.download_id = cursor.lastrowid
         print(self.download_id)
 
-    def update_download(self, status, progress, speed, time_left, finished_downloading=False):
+    def update_download(self, status, progress, speed, finished_downloading=False):
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
@@ -3186,11 +3282,10 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     status = ?,
                     progress = ?,
                     speed = ?,
-                    time_left = ?,
                     pid = ?,
                     finished_downloading = ?
                 WHERE id = ?
-            """, (status, progress, speed, time_left, self.pid, finished_downloading, self.download_id))
+            """, (status, progress, speed, self.pid, finished_downloading, self.download_id))
             self.conn.commit()
             
         except Exception as e:
@@ -3318,12 +3413,17 @@ class DownloadWindow(Gtk.ApplicationWindow):
         dialog.destroy()
         self.exit()
 
-    def pause_download(self):
+    def pause_download(self, exit=False):
         has_finished = False
         if self.is_seeding:
-            status = "Paused" if self.is_paused else "Finished"
-            has_finished = True if status == "Finished" else False
-            self.update_download(status, self.progress, "--", "--", finished_downloading=has_finished)
+            print("is seeding yes!")
+            if not exit:
+                status = "Paused" if self.is_paused else "Finished"
+                has_finished = True if status == "Finished" else False
+            else:
+                status = "Finished"
+                has_finished = True
+            self.update_download(status, self.progress, "--", finished_downloading=has_finished)
             return
             
         if self.progress >= 100 and self.is_completed:
@@ -3332,7 +3432,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
         else: 
             status = "Paused" if self.is_paused else "Stopped"
     
-        self.update_download(status, self.progress, "--", "--", finished_downloading=has_finished)
+        self.update_download(status, self.progress, "--", finished_downloading=has_finished)
     
     def is_network_error(self, error_str):
         error_str = error_str.lower()

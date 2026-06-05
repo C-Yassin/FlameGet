@@ -820,22 +820,9 @@ stackswitcher.downloader button:checked {
 .tracker-item:hover{
     background-color: @foreground;
 }
-.del-tracker-item{
-    min-width: 1px;
-    min-height: 1px;
-    border-radius: 3px;
-    color: white;
+.trackers-textview {
     background-image: none;
-    background-color: @red;
-    border: 1px solid @red;
-    padding: 0px;
-}
-.del-tracker-item:hover{
-    background-color: alpha(@red, .8);
-}
-.del-tracker-item:active{
-    background-image: none;
-    background-color: alpha(@red, .5);
+    background-color: @background;
 }
 .add-new-tracker-button{
     min-height: 5px;

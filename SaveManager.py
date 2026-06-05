@@ -87,8 +87,18 @@ def save_settings(app_settings):
 def load_settings(download_folder=""):
     default_css = os.path.join(config_dir, "dark_style.css")
     custom_css = os.path.join(config_dir, "custom_style.css")
-    if download_folder == "":
-        download_folder = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD)
+    
+    home_dir = GLib.get_home_dir()
+    sys_downloads = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD) or home_dir
+    sys_videos = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_VIDEOS) or sys_downloads
+    sys_music = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_MUSIC) or sys_downloads
+    sys_pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES) or sys_downloads
+    sys_documents = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOCUMENTS) or sys_downloads
+    
+    sys_programs = sys_downloads 
+
+    base_dir = download_folder if download_folder else sys_downloads
+
     defaults = {
         "engine": "Aria2",
         "css_path": default_css,
@@ -97,9 +107,18 @@ def load_settings(download_folder=""):
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "confirm_delete": True,
         "notifications": True,
-        "default_download_dir": download_folder,
+        
+        "default_download_dir": base_dir,
+        "video_download_dir": sys_videos,
+        "music_download_dir": sys_music,
+        "image_download_dir": sys_pictures,
+        "program_download_dir": sys_programs,
+        "document_download_dir": sys_documents,
+        
         "theme_mode": "Dark",
         "language": "en",
+        "max_concurrent_downloads": 1,
+        "max_retries": 5,
         "font_name": "Sans Regular 11",
         "ui_scale": 100,
         "start_on_boot": False,
@@ -127,7 +146,7 @@ def load_settings(download_folder=""):
             "close_window": [int(Gdk.KEY_w), int(Gdk.ModifierType.CONTROL_MASK)]
         }
     }
-
+    
     if os.path.exists(settings_file):
         try:
             with open(settings_file, 'r') as f:
@@ -205,7 +224,6 @@ class DownloadDatabase:
                 status TEXT,
                 progress INTEGER,
                 speed TEXT,
-                time_left TEXT,
                 date_added TEXT,
                 category TEXT,
                 file_directory TEXT,
@@ -229,7 +247,9 @@ class DownloadDatabase:
         
         if "priority" not in existing_columns:
             cursor.execute("ALTER TABLE downloads ADD COLUMN priority TEXT DEFAULT 'Normal'")
-            
+        if "time_left" in existing_columns:
+            try: cursor.execute("ALTER TABLE downloads DROP COLUMN time_left")
+            except: pass
         if "bandwidth_limit" not in existing_columns:
             cursor.execute("ALTER TABLE downloads ADD COLUMN bandwidth_limit INT DEFAULT 0")
         

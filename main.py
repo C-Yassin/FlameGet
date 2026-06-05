@@ -115,13 +115,6 @@ class TorrentNode(GObject.Object):
 
         if self.parent: self.parent.recalculate_state()
 
-class TrackerItem(GObject.Object):
-    __gtype_name__ = 'TrackerItem'
-    url = GObject.Property(type=str, default="")
-    def __init__(self, url):
-        super().__init__()
-        self.url = url
-
 class DownloadItem(GObject.Object):
     __gtype_name__ = 'DownloadItem'
 
@@ -133,7 +126,6 @@ class DownloadItem(GObject.Object):
         self.status = row['status']
         self.progress = row['progress']
         self.speed = row['speed']
-        self.time_left = row['time_left']
         self.date_added = row['date_added']
         try: self.scheduled_time = row['scheduled_time']
         except (IndexError, KeyError): self.scheduled_time = 0
@@ -194,9 +186,6 @@ class DownloadItem(GObject.Object):
             self.speed = row['speed']
             self.notify("speed-prop")
         
-        if self.time_left != row['time_left']:
-            self.time_left = row['time_left']
-
         if self.pid != row['pid']:
             self.pid = row['pid']
             self.notify("pid-prop")
@@ -551,9 +540,12 @@ class FlameGetManager(Gtk.Application):
         idx = selection.get_nth(0)
         return self.selection_model.get_model().get_item(idx)
 
-    def ctx_open_file(self):
-        item = self._get_first_selected()
+    def ctx_open_file(self, passed_item=None):
+        item = passed_item if passed_item is not None else self._get_first_selected()
         if item and item.status == "Finished":
+            if item.filename.endswith(".torrent"):
+                self.ctx_open_folder(item) 
+                return
             full_path = os.path.join(item.file_directory, item.filename)
             if os.path.exists(full_path):
                 self.open_file_direct(full_path)
@@ -561,10 +553,13 @@ class FlameGetManager(Gtk.Application):
             else:
                 self.show_toast_popup(f"{tr("Couldn't Open File:")} {item.filename}", color="red_toast")
 
-    def ctx_open_folder(self):
-        item = self._get_first_selected()
+    def ctx_open_folder(self, passed_item=None):
+        item = passed_item if passed_item is not None else self._get_first_selected()
         if item:
-            full_path = os.path.join(item.file_directory, item.filename)
+            if item.filename.endswith(".torrent"):
+                full_path = os.path.join(item.file_directory, item.filename.removesuffix(".torrent"))
+            else:
+                full_path = os.path.join(item.file_directory, item.filename)
             if os.path.exists(full_path):
                 self.show_file_in_folder(full_path)
                 self.show_toast_popup(f"{tr("Opening File's Folder...")}")
@@ -620,7 +615,7 @@ class FlameGetManager(Gtk.Application):
                 "quality": item.quality_mod if hasattr(item, "quality_mod") else "Best Available",
                 "playlist": str(item.download_playlist) if hasattr(item, "download_playlist") else "False",
                 "bandwidth_limit": str(item.bandwidth_limit) or "0",
-                "hash": self.hash or None
+                "hash": item.hash or None
             }
             redo_list.append((item, restart_data))
         for item, _ in redo_list:
@@ -912,29 +907,64 @@ class FlameGetManager(Gtk.Application):
 
         gen_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         gen_box.set_margin_top(20); gen_box.set_margin_bottom(20); gen_box.set_margin_start(20); gen_box.set_margin_end(20)
-        
-        gen_box.append(self.create_settings_label("Default Download Directory"))
-        dir_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        dir_entry = Gtk.Entry(); dir_entry.set_hexpand(True); dir_entry.set_editable(False)
-        dir_entry.add_css_class("entry")
-        dir_entry.set_text(self.app_settings.get("default_download_dir", ""))
-        btn_dir = Gtk.Button(icon_name="xsi-folder-open-symbolic")
-        btn_dir.add_css_class("blue-btn")
-        def on_dir_pick(b):
-            fd = Gtk.FileDialog()
-            def on_d_done(s, r):
-                try:
-                    f = fd.select_folder_finish(r)
-                    path = f.get_path()
-                    dir_entry.set_text(path)
-                    self.app_settings["default_download_dir"] = path
-                    self.download_folder = path
-                    save_settings(self.app_settings)
-                except: pass
-            fd.select_folder(dialog, None, on_d_done)
-        btn_dir.connect("clicked", on_dir_pick)
-        dir_box.append(dir_entry); dir_box.append(btn_dir)
-        gen_box.append(dir_box)
+
+        gen_box.append(self.create_settings_label(tr("Download Locations:")))
+
+        def create_dir_picker_callback(key, entry_widget):
+            def on_dir_pick(button):
+                fd = Gtk.FileDialog()
+                def on_d_done(source, result):
+                    try:
+                        f = fd.select_folder_finish(result)
+                        path = f.get_path()
+                        entry_widget.set_text(path)
+                        self.app_settings[key] = path
+                        
+                        if key == "default_download_dir":
+                            self.download_folder = path
+                            
+                        save_settings(self.app_settings)
+                    except Exception: 
+                        pass
+                fd.select_folder(dialog, None, on_d_done)
+            return on_dir_pick
+
+        dir_grid = Gtk.Grid(row_spacing=12, column_spacing=15)
+        gen_box.append(dir_grid)
+
+        download_dirs = {
+            "default_download_dir": "Default",
+            "video_download_dir": "Videos",
+            "music_download_dir": "Music",
+            "image_download_dir": "Images",
+            "program_download_dir": "Programs",
+            "document_download_dir": "Documents"
+        }
+        row = 0
+        for setting_key, label_text in download_dirs.items():
+            label = Gtk.Label(label=label_text)
+            label.set_halign(Gtk.Align.START)
+            label.set_valign(Gtk.Align.CENTER)
+            dir_grid.attach(label, 0, row, 1, 1)
+            
+            dir_entry = Gtk.Entry()
+            dir_entry.set_hexpand(True)
+            dir_entry.set_editable(False)
+            dir_entry.add_css_class("entry")
+            dir_entry.set_text(self.app_settings.get(setting_key, ""))
+            dir_entry.set_valign(Gtk.Align.CENTER)
+            dir_grid.attach(dir_entry, 1, row, 1, 1)
+            
+            btn_dir = Gtk.Button(icon_name="xsi-folder-open-symbolic")
+            btn_dir.add_css_class("blue-btn")
+            btn_dir.set_valign(Gtk.Align.CENTER)
+            btn_dir.connect("clicked", create_dir_picker_callback(setting_key, dir_entry))
+            dir_grid.attach(btn_dir, 2, row, 1, 1)
+            
+            row += 1
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        gen_box.append(separator)
 
         gen_box.append(self.create_settings_label(tr("Language (Requires Restart)")))
         dd_lang = Gtk.DropDown.new_from_strings(["English (en)", "French (fr)", "Spanish (es)","Arabic (ar)", "Russian (ru)"])
@@ -1052,58 +1082,53 @@ class FlameGetManager(Gtk.Application):
         on_cmd_change(cmd_entry)
         gen_box.append(dd_action); gen_box.append(cmd_box)
 
-        chk_del = Gtk.CheckButton(label=tr("Confirm before deleting tasks"))
-        chk_del.set_active(self.app_settings.get("confirm_delete", True))
-        chk_del.connect("toggled", lambda b: self.app_settings.update({"confirm_delete": b.get_active()}) or save_settings(self.app_settings))
-        gen_box.append(chk_del)
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        gen_box.append(separator)
 
-        chk_notif = Gtk.CheckButton(label=tr("Show Desktop Notifications (When finished)"))
-        chk_notif.set_active(self.app_settings.get("notifications", True))
-        chk_notif.connect("toggled", lambda b: self.app_settings.update({"notifications": b.get_active()}) or save_settings(self.app_settings))
-        gen_box.append(chk_notif)
+        gen_box.append(self.create_settings_label(tr("System & Notifications:")))
+        def create_toggle_cb(key, extra_action=None):
+            def on_toggle(btn):
+                self.app_settings[key] = btn.get_active()
+                save_settings(self.app_settings)
+                if extra_action:
+                    extra_action(btn.get_active())
+            return on_toggle
 
-        enable_toasts = Gtk.CheckButton(label=tr("Show Short Pop-up Messages (Toasts)"))
-        enable_toasts.set_active(self.app_settings.get("enable_toasts", True))
-        enable_toasts.connect("toggled", lambda b: self.app_settings.update({"enable_toasts": b.get_active()}) or save_settings(self.app_settings))
-        gen_box.append(enable_toasts)
+        checkboxes_data = [
+            ("confirm_delete", tr("Confirm before deleting tasks"), True, None, None),
+            ("notifications", tr("Show Desktop Notifications (When finished)"), True, None, None),
+            ("enable_toasts", tr("Show Short Pop-up Messages (Toasts)"), True, None, None),
+            ("show_finish_dialog", tr("Show Dialog when Download Finishes"), True, None, None),
+            ("start_on_boot", tr("Start on Boot"), False, None, self.toggle_autostart),
+            ("auto_start", tr("Start Download Immediately"), False, tr("If checked, the downloads will begin instantly when added, skipping the 'Download' button."), None),
+            ("start_in_minimize_mode", tr("Start in Minimized Mode"), False, tr("If checked, The downloads will begin in the background."), None),
+            ("disable_seeding", tr("Disable Seeding"), False, tr("If checked, seeding torrents will be disabled."), None)
+        ]
 
-        chk_finish = Gtk.CheckButton(label=tr("Show Dialog when Download Finishes"))
-        chk_finish.set_active(self.app_settings.get("show_finish_dialog", True))
-        chk_finish.connect("toggled", lambda b: self.app_settings.update({"show_finish_dialog": b.get_active()}) or save_settings(self.app_settings))
-        gen_box.append(chk_finish)
+        chk_grid = Gtk.Grid(row_spacing=12, column_spacing=40)
+        gen_box.append(chk_grid)
 
-        chk_boot = Gtk.CheckButton(label=tr("Start on Boot"))
-        chk_boot.set_active(self.app_settings.get("start_on_boot", False))
-        def on_boot_change(btn):
-            self.app_settings["start_on_boot"] = btn.get_active()
-            save_settings(self.app_settings)
-            self.toggle_autostart(btn.get_active())
-        chk_boot.connect("toggled", on_boot_change)
-        gen_box.append(chk_boot)
-
-        auto_start = Gtk.CheckButton(label=tr("Start Download Immediately"))
-        auto_start.set_tooltip_text(tr("If checked, the downloads will begin instantly when added, skipping the 'Download' button."))
-        auto_start.set_active(self.app_settings.get("auto_start", False))
-        auto_start.connect("toggled", lambda b: self.app_settings.update({"auto_start": b.get_active()}) or save_settings(self.app_settings))
-        gen_box.append(auto_start)
-
-        start_minimized = Gtk.CheckButton(label=tr("Start in Minimized Mode"))
-        start_minimized.set_tooltip_text(tr("If checked, The downloads will begin in the background."))
-        start_minimized.set_active(self.app_settings.get("start_in_minimize_mode", False))
-        start_minimized.connect("toggled", lambda b: self.app_settings.update({"start_in_minimize_mode": b.get_active()}) or save_settings(self.app_settings))
-        gen_box.append(start_minimized)
-
-        disable_seeding = Gtk.CheckButton(label=tr("Disable Seeding"))
-        disable_seeding.set_tooltip_text(tr("If checked, seeding torrents will be disabled."))
-        disable_seeding.set_active(self.app_settings.get("disable_seeding", False))
-        disable_seeding.connect("toggled", lambda b: self.app_settings.update({"disable_seeding": b.get_active()}) or save_settings(self.app_settings))
-        gen_box.append(disable_seeding)
+        row = 0
+        col = 0
+        
+        for key, label_text, default_val, tooltip, extra_action in checkboxes_data:
+            chk = Gtk.CheckButton(label=label_text)
+            
+            chk.set_active(self.app_settings.get(key, default_val))
+            if tooltip:
+                chk.set_tooltip_text(tooltip)
+                
+            chk.connect("toggled", create_toggle_cb(key, extra_action))
+            chk_grid.attach(chk, col, row, 1, 1)
+            col += 1
+            if col > 1:
+                col = 0
+                row += 1
 
         stack.add_named(gen_box, "General")
-
+        
         net_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         net_box.set_margin_top(20); net_box.set_margin_bottom(20); net_box.set_margin_start(20); net_box.set_margin_end(20)
-
         net_box.append(self.create_settings_label("Download Engine (Backend)"))
         dd_eng = Gtk.DropDown.new_from_strings(["Aria2", "Curl"])
         if self.is_rtl: dd_eng.add_css_class("dropmenu-rtl")
@@ -1121,6 +1146,20 @@ class FlameGetManager(Gtk.Application):
         ua_entry.set_text(self.app_settings.get("user_agent", ""))
         ua_entry.connect("changed", lambda e: self.app_settings.update({"user_agent": e.get_text()}) or save_settings(self.app_settings))
         net_box.append(ua_entry)
+
+        net_box.append(self.create_settings_label("Max Concurrent Downloads"))
+        spin_concurrent = Gtk.SpinButton.new_with_range(1, 20, 1)
+        spin_concurrent.add_css_class("entry")
+        spin_concurrent.set_value(self.app_settings.get("max_concurrent_downloads", 1))
+        spin_concurrent.connect("value-changed", lambda s: self.app_settings.update({"max_concurrent_downloads": int(s.get_value())}) or save_settings(self.app_settings))
+        net_box.append(spin_concurrent)
+
+        net_box.append(self.create_settings_label("Max Retries on Connection Failure"))
+        spin_retries = Gtk.SpinButton.new_with_range(0, 99, 1)
+        spin_retries.add_css_class("entry")
+        spin_retries.set_value(self.app_settings.get("max_retries", 5))
+        spin_retries.connect("value-changed", lambda s: self.app_settings.update({"max_retries": int(s.get_value())}) or save_settings(self.app_settings))
+        net_box.append(spin_retries)
 
         net_box.append(self.create_settings_label("Default Segments (Connections)"))
         spin_seg = Gtk.SpinButton.new_with_range(1, 32, 1)
@@ -1936,7 +1975,7 @@ class FlameGetManager(Gtk.Application):
         btn_add_tracker.set_child(icon)
         btn_add_tracker.add_css_class("add-new-tracker-button")
         btn_add_tracker.set_halign(Gtk.Align.END)
-
+        btn_add_tracker.set_margin_top(6)
         btn_add_tracker.set_tooltip_text(tr("Add New Tracker"))
         btn_add_tracker.connect("clicked", self.on_add_tracker_clicked)
 
@@ -1949,23 +1988,21 @@ class FlameGetManager(Gtk.Application):
         self.expander_trackers.set_sensitive(False)
         self.expander_trackers.set_expanded(False)
 
-        self.trackers_store = Gio.ListStore(item_type=TrackerItem)
-        trackers_sel_model = Gtk.SingleSelection(model=self.trackers_store)
-        trackers_list_view = Gtk.ListView(model=trackers_sel_model)
-        self.trackers_store.remove_all()
+        trackers_scrolled = Gtk.ScrolledWindow()
+        trackers_scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        trackers_scrolled.set_min_content_height(100)
+        trackers_scrolled.set_vexpand(True)
         
-        ft = Gtk.SignalListItemFactory()
+        self.trackers_textview = Gtk.TextView()
+        self.trackers_textview.set_editable(False)
+        self.trackers_textview.set_cursor_visible(False)
+        self.trackers_textview.set_left_margin(5)
+        self.trackers_textview.set_top_margin(5)
+        self.trackers_textview.add_css_class("trackers-textview")
+        self.trackers_textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         
-        ft.connect("setup", self._setup_tracker_row)
-        ft.connect("bind", self._bind_tracker_row)
-        trackers_list_view.set_factory(ft)
-        
-        trackers_scroll = Gtk.ScrolledWindow()
-        trackers_scroll.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.EXTERNAL)
-        trackers_scroll.set_min_content_height(100)
-        trackers_scroll.set_child(trackers_list_view)
-        
-        self.expander_trackers.set_child(trackers_scroll)
+        trackers_scrolled.set_child(self.trackers_textview)
+        self.expander_trackers.set_child(trackers_scrolled)
         self.grid_torrent_meta.append(self.expander_trackers)
         self.cached_grids["torrent_meta"] = self.grid_torrent_meta
 
@@ -2088,47 +2125,6 @@ class FlameGetManager(Gtk.Application):
         node.toggle(btn.get_active())
         self.update_torrent_counter()
 
-    def _setup_tracker_row(self, fact, item):
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        
-        l = Gtk.Label(xalign=0, selectable=True)
-        l.set_hexpand(True)
-        l.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        l.set_max_width_chars(25)
-        
-        btn_del = Gtk.Button()
-        icon = Gtk.Image.new_from_icon_name("xsi-window-close-symbolic")
-        icon.set_pixel_size(12)
-        btn_del.set_child(icon)
-        btn_del.add_css_class("del-tracker-item")
-        
-        box.append(btn_del)
-        box.append(l)
-        box.add_css_class("tracker-item")
-        self.set_cursor_for_widget(btn_del, "pointer")
-        item.set_child(box)
-
-    def _bind_tracker_row(self, fact, item):
-        box = item.get_child()
-        btn_del = box.get_first_child()
-        lbl = box.get_last_child()
-        
-        obj = item.get_item()
-        if obj and hasattr(obj, 'url'):
-            lbl.set_label(obj.url)
-            
-            if hasattr(btn_del, "handler_id"):
-                btn_del.disconnect(btn_del.handler_id)
-            
-            btn_del.handler_id = btn_del.connect("clicked", self._on_tracker_remove_clicked, obj)
-
-    def _on_tracker_remove_clicked(self, btn, obj):
-        for i in range(self.trackers_store.get_n_items()):
-            if self.trackers_store.get_item(i) == obj:
-                self.trackers_store.remove(i)
-                self.update_tracker_count()
-                break
-
     def on_yt_mode_changed(self, dropdown, pspec):
         selected = dropdown.get_selected()
         
@@ -2185,8 +2181,8 @@ class FlameGetManager(Gtk.Application):
         
     def on_start_download_clicked(self, btn, dialog, local_torrent_path):
         url = self.entry_url.get_text().strip()
-        if not self.is_valid_url(url):
-            return
+        if not addOn.is_valid_url(url): return
+
         if ".m3u8" in url.lower() or ".ts" in url.lower():
             self.notify_user_about_hls_video()
             return
@@ -2265,35 +2261,48 @@ class FlameGetManager(Gtk.Application):
             dialog.destroy()
 
     def fetch_torrent_metadata(self, url, local_torrent_path=None):
-        """
-        Main entry point to fetch metadata. 
-        If local_torrent_path is provided, it uses that file.
-        Otherwise, it attempts to download metadata from the magnet link first.
-        """
-        self.trackers_store.remove_all()
+        import urllib.request, urllib.error
+        self.trackers = []
         self.torrent_files_data = []
-
-        if local_torrent_path is None:
-            parsed = urlparse(url)
-            trackers = parse_qs(parsed.query).get("tr", [])
-            for tr in trackers:
-                self.trackers_store.append(TrackerItem(tr))
-            self.update_tracker_count()
 
         try:
             if local_torrent_path is None:
-                local_torrent_path = self._download_magnet_metadata(url)
-                
-                if not local_torrent_path:
-                    print("Metadata not found. The torrent might be dead or timeout was too short.")
-                    GLib.idle_add(self.lbl_meta_name.set_text, tr("Metadata was not found. Torrent dead or timed out."))
+                if url.startswith("magnet:?"):
+                    parsed = urlparse(url)
+                    trackers = parse_qs(parsed.query).get("tr", [])
+                    for tracker in trackers:
+                        if tracker not in self.trackers:
+                            self.trackers.append(tracker)
+                    self.update_tracker_count()
+
+                    local_torrent_path = self._download_magnet_metadata(url)
+                    
+                    if not local_torrent_path:
+                        print("Metadata not found. The torrent might be dead or timeout was too short.")
+                        GLib.idle_add(self.lbl_meta_name.set_text, tr("Metadata was not found. Torrent dead or timed out."))
+                        return
+
+                elif url.startswith("http://") or url.startswith("https://"):
+                    temp_dir = tempfile.gettempdir()
+                    filename = os.path.basename(urlparse(url).path)
+                    if not filename:
+                        filename = "downloaded.torrent"
+                        
+                    local_torrent_path = os.path.join(temp_dir, filename)
+                    urllib.request.urlretrieve(url, local_torrent_path)
+                    
+                else:
+                    print("Error: Unsupported URL format.")
                     return
 
-            if os.path.exists(local_torrent_path):
+            if local_torrent_path and os.path.exists(local_torrent_path):
                 self._parse_torrent_file(local_torrent_path)
             else:
                 print(f"Error: Torrent file not found at {local_torrent_path}")
 
+        except urllib.error.URLError as e:
+            GLib.idle_add(self.lbl_meta_name.set_text, tr("Failed to download torrent file."))
+            print(f"HTTP download error: {e}")
         except subprocess.TimeoutExpired:
             GLib.idle_add(self.lbl_meta_name.set_text, tr("Size: Timeout (Metadata not found)"))
             print("The process timed out while fetching metadata.")
@@ -2342,8 +2351,8 @@ class FlameGetManager(Gtk.Application):
         file_mode = False
         current_path = None
         current_index = None
-        trackers = []
-        self.trackers_store.remove_all()
+        self.trackers = []
+
         for line in lines:
             stripped = line.strip()
             
@@ -2358,14 +2367,14 @@ class FlameGetManager(Gtk.Application):
                 continue
                 
             url = self.extract_magnet(stripped)
-            if url != None:
+            if url:
                 self.raw_file_url = url
                 parsed = urlparse(url)
                 qs = parse_qs(parsed.query)
                 trackers = qs.get("tr", [])
-                for tr in trackers:
-                    t_item = TrackerItem(tr)
-                    self.trackers_store.append(t_item)
+                for tracker in trackers:
+                    if tracker not in self.trackers:
+                        self.trackers.append(tracker)
                 self.update_tracker_count()
             
             if file_mode:
@@ -2491,7 +2500,7 @@ class FlameGetManager(Gtk.Application):
             return 0
 
     def on_add_tracker_clicked(self, btn):
-        dialog = Gtk.Dialog(title=tr("Add Trackers"), transient_for=self.add_url_dialog, modal=True)
+        dialog = Gtk.Dialog(title=tr("Edit Trackers"), transient_for=self.add_url_dialog, modal=True)
         GLib.idle_add(addOn.set_titlebar_theme, dialog.get_title(), self.app_settings.get("theme_mode"))
         if os.name == 'nt': GLib.timeout_add(50, addOn.force_center_dialog, dialog.get_title(), "FlameGet")
 
@@ -2503,7 +2512,7 @@ class FlameGetManager(Gtk.Application):
         content.set_margin_top(10); content.set_margin_bottom(10); 
         content.set_margin_start(10); content.set_margin_end(10)
         
-        lbl = Gtk.Label(label=tr("Enter Tracker URLs (One per line):"))
+        lbl = Gtk.Label(label=tr("Trackers (One per line):"))
         lbl.set_xalign(0)
 
         scrolled = Gtk.ScrolledWindow()
@@ -2516,70 +2525,50 @@ class FlameGetManager(Gtk.Application):
         text_view.set_top_margin(5)
         text_view.add_css_class("entry")
         
+        buffer = text_view.get_buffer()
+        if hasattr(self, 'trackers') and self.trackers:
+            buffer.set_text("\n".join(self.trackers))
+            
         scrolled.set_child(text_view)
 
-        btn_add = Gtk.Button(label=tr("Add Trackers"))
-        btn_add.add_css_class("green-btn")
+        btn_save = Gtk.Button(label=tr("Save Trackers"))
+        btn_save.add_css_class("green-btn")
         
         def on_confirm(b):
-            buffer = text_view.get_buffer()
             start, end = buffer.get_bounds()
             raw_text = buffer.get_text(start, end, True)
             
             lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
             
-            if not lines:
-                return
-
-            existing_urls = set()
-            for i in range(self.trackers_store.get_n_items()):
-                item = self.trackers_store.get_item(i)
-                if hasattr(item, 'url'):
-                    existing_urls.add(item.url)
-
-            added_count = 0
-            skipped_count = 0
-            
+            new_trackers = []
             for url in lines:
-                if not (url.startswith("udp://") or url.startswith("http")):
-                    continue
-                
-                if url in existing_urls:
-                    skipped_count += 1
-                    continue
-                
-                item = TrackerItem(url)
-                self.trackers_store.append(item)
-                existing_urls.add(url)
-                added_count += 1
+                if (url.startswith("udp://") or url.startswith("wss://") or url.startswith("http")) and url not in new_trackers:
+                    new_trackers.append(url)
 
-            if added_count > 0:
-                self.update_tracker_count()
-                
-                msg = f"{tr("Added")} {added_count} {tr("trackers.")}"
-                if skipped_count > 0:
-                    msg += f" ({skipped_count} {tr("skipped")})"
-                
-                self.show_toast_popup(msg, color="blue_toast")
-                dialog.destroy()
+            self.trackers = new_trackers
+            self.update_tracker_count()
             
-            elif skipped_count > 0:
-                self.show_toast_popup(tr("Trackers already exist."), color="red_toast")
-            else:
-                self.show_toast_popup(tr("No valid trackers found."), color="red_toast")
+            self.show_toast_popup(f"{tr('Saved')} {len(self.trackers)} {tr('trackers.')}", color="blue_toast")
+            dialog.destroy()
         
-        btn_add.connect("clicked", on_confirm)
+        btn_save.connect("clicked", on_confirm)
         
         content.append(lbl)
         content.append(scrolled)
-        content.append(btn_add)
+        content.append(btn_save)
         dialog.set_child(content)
         dialog.set_visible(True)
         self.apply_cursor_recursive(dialog, "pointer")
 
     def update_tracker_count(self):
-        count = self.trackers_store.get_n_items()
-        self.tracker_label.set_label(f"{tr("Show Trackers")} ({count})")
+        count = len(self.trackers) if hasattr(self, 'trackers') else 0
+        self.tracker_label.set_label(f"{tr('Show Trackers')} ({count})")
+        
+        buffer = self.trackers_textview.get_buffer()
+        if count > 0:
+            buffer.set_text("\n".join(self.trackers))
+        else:
+            buffer.set_text("")
 
     def on_select_folder_clicked(self, button):
         dialog = Gtk.FileDialog()
@@ -2770,21 +2759,16 @@ class FlameGetManager(Gtk.Application):
 
         target_widget = list_item.get_child()
         while target_widget:
-            if target_widget.get_css_name() == "row":
-                break
+            if target_widget.get_css_name() == "row": break
             target_widget = target_widget.get_parent()
+
         if target_widget:
             target_widget.add_css_class("flash-impact")
             GLib.timeout_add(500, lambda: target_widget.remove_css_class("flash-impact") or False)
-
+            
         if item.status == "Finished":
-            full_path = os.path.join(item.file_directory, item.filename)
-            if os.path.exists(full_path):
-                self.open_file_direct(full_path)
-                self.show_toast_popup(f"{tr("Opening File:")} {item.filename}")
-            else:
-                self.show_toast_popup(f"{tr("Couldn't Open File:")} {item.filename}", color="red_toast")
-        elif item.status in ("Paused", "Stopped"):
+            self.ctx_open_file(item)
+        elif item.status in ("Paused", "Stopped", "Scheduled"):
             self.resume_download(None, self.selection_model)
 
     def on_row_right_click(self, gesture, n_press, x, y, list_item):
@@ -3254,7 +3238,7 @@ class FlameGetManager(Gtk.Application):
             cursor.execute("SELECT COUNT(*) FROM downloads WHERE status = 'downloading'")
             active_downloads = cursor.fetchone()[0]
             
-            max_concurrent = int(self.app_settings.get("max_concurrent_downloads", "1"))
+            max_concurrent = self.app_settings.get("max_concurrent_downloads", 1)
             available_slots = max_concurrent - active_downloads
             
             if available_slots <= 0:
@@ -3791,7 +3775,7 @@ class FlameGetManager(Gtk.Application):
 
     def on_queue_clicked(self, btn, directory, dialogue):
         entry_url = self.entry_url.get_text()
-        if not self.is_valid_url(entry_url): return
+        if not addOn.is_valid_url(entry_url): return
         settings_window = Gtk.Window(title=tr("Queue Settings"), transient_for=dialogue, modal=True, destroy_with_parent=True)
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         main_box.set_margin_top(15)
@@ -4015,10 +3999,10 @@ class FlameGetManager(Gtk.Application):
         
         cursor.execute("""
             INSERT INTO downloads
-            (filename, size, status, progress, speed, time_left, date_added, category, 
+            (filename, size, status, progress, speed, date_added, category, 
             file_directory, url, pid, file_size_bytes, segments, is_audio, quality_mod, 
             download_playlist, scheduled_time, priority, bandwidth_limit)
-            VALUES (?, ?, ?, 0, '--', '--', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 0, '--', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             filename, size_str, initial_status, date_added, cat, directory_folder, 
             self.raw_file_url, -1, file_size_bytes, segments, is_audio, quality_mod, 
@@ -4240,23 +4224,6 @@ class FlameGetManager(Gtk.Application):
         print(path)
         os.path.basename(path)
         return path
-
-    def is_valid_url(self, text):
-        text = text.strip()
-        if not text:
-            return False
-            
-        if text.lower().startswith("magnet:?"):
-            return True
-            
-        pattern = re.compile(
-            r'^(?:(?:https?|ftp)://)?'
-            r'(?:[\w-]+\.)+[a-z]{2,}'
-            r'(?:/\S*)?$',
-            re.IGNORECASE
-        )
-        
-        return bool(pattern.match(text))
 
     def on_url_entry_changed(self, entry):
         raw_input = entry.get_text().strip()

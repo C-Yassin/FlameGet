@@ -318,6 +318,23 @@ def range_parse_size(val, unit):
 def is_pid_alive(pid: int) -> bool:
     return psutil.pid_exists(pid)
 
+def is_valid_url(text):
+    text = text.strip()
+    if not text:
+        return False
+        
+    if text.lower().startswith("magnet:?") or text.lower().endswith(".torrent"):
+        return True
+        
+    pattern = re.compile(
+        r'^(?:(?:https?|ftp)://)?'
+        r'(?:[\w-]+\.)+[a-z]{2,}'
+        r'(?:/\S*)?$',
+        re.IGNORECASE
+    )
+    
+    return bool(pattern.match(text))
+
 def set_titlebar_theme(window_title, theme_str="Dark"):
     if os.name != 'nt':
         return

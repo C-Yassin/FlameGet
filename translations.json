@@ -266,7 +266,17 @@
         "Scheduled for:": "Programmé pour :",
         "Today at": "Aujourd'hui à",
         "Tomorrow at": "Demain à",
-        "at": "à"
+        "at": "à",
+        "Max Concurrent Downloads": "Téléchargements simultanés maximum",
+        "Max Retries on Connection Failure": "Tentatives maximum en cas d'échec de connexion",
+        "Timeout: Could not find metadata on the network.": "Délai dépassé : Impossible de trouver les métadonnées sur le réseau.",
+        "Fetching metadata from peers... Please wait.": "Récupération des métadonnées depuis les pairs... Veuillez patienter.",
+        "Failed to retrieve torrent info.": "Échec de la récupération des informations du torrent.",
+        "Please remove forbidden characters.": "Veuillez retirer les caractères interdits.",
+        "Filename cannot end with a space or period.": "Le nom de fichier ne peut pas se terminer par un espace ou un point.",
+        "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "Le nom de fichier contient des caractères invalides (ex : \\ / : * ? \" < > |).",
+        "Metadata was not found. Torrent dead or timed out.": "Métadonnées introuvables. Torrent inactif ou délai dépassé.",
+        "Failed to download torrent file.": "Échec du téléchargement du fichier torrent."
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -535,7 +545,17 @@
         "Scheduled for:": "Programado para:",
         "Today at": "Hoy a las",
         "Tomorrow at": "Mañana a las",
-        "at": "a las"
+        "at": "a las",
+        "Max Concurrent Downloads": "Descargas simultáneas máximas",
+        "Max Retries on Connection Failure": "Reintentos máximos por fallo de conexión",
+        "Timeout: Could not find metadata on the network.": "Tiempo de espera: No se pudieron encontrar metadatos en la red.",
+        "Fetching metadata from peers... Please wait.": "Obteniendo metadatos de los pares... Por favor, espere.",
+        "Failed to retrieve torrent info.": "Error al recuperar la información del torrent.",
+        "Please remove forbidden characters.": "Por favor, elimine los caracteres prohibidos.",
+        "Filename cannot end with a space or period.": "El nombre de archivo no puede terminar con un espacio o un punto.",
+        "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "El nombre de archivo contiene caracteres inválidos (ej., \\ / : * ? \" < > |).",
+        "Metadata was not found. Torrent dead or timed out.": "Metadatos no encontrados. Torrent inactivo o tiempo de espera agotado.",
+        "Failed to download torrent file.": "Error al descargar el archivo torrent."
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -804,7 +824,17 @@
         "Scheduled for:": "Запланировано на:",
         "Today at": "Сегодня в",
         "Tomorrow at": "Завтра в",
-        "at": "в"
+        "at": "в",
+        "Max Concurrent Downloads": "Максимум одновременных загрузок",
+        "Max Retries on Connection Failure": "Максимум попыток при сбое соединения",
+        "Timeout: Could not find metadata on the network.": "Тайм-аут: Не удалось найти метаданные в сети.",
+        "Fetching metadata from peers... Please wait.": "Получение метаданных от пиров... Пожалуйста, подождите.",
+        "Failed to retrieve torrent info.": "Не удалось получить информацию о торренте.",
+        "Please remove forbidden characters.": "Пожалуйста, удалите запрещенные символы.",
+        "Filename cannot end with a space or period.": "Имя файла не может заканчиваться пробелом или точкой.",
+        "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "Имя файла содержит недопустимые символы (напр., \\ / : * ? \" < > |).",
+        "Metadata was not found. Torrent dead or timed out.": "Метаданные не найдены. Торрент мертв или время ожидания истекло.",
+        "Failed to download torrent file.": "Не удалось скачать торрент-файл."
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -1073,6 +1103,16 @@
         "Scheduled for:": "مجدول في:",
         "Today at": "اليوم في",
         "Tomorrow at": "غداً في",
-        "at": "في"
+        "at": "في",
+        "Max Concurrent Downloads": "الحد الأقصى للتحميلات المتزامنة",
+        "Max Retries on Connection Failure": "الحد الأقصى لإعادة المحاولة عند فشل الاتصال",
+        "Timeout: Could not find metadata on the network.": "انتهت المهلة: لم يتم العثور على بيانات وصفية على الشبكة.",
+        "Fetching metadata from peers... Please wait.": "جاري جلب البيانات الوصفية من الأقران... يرجى الانتظار.",
+        "Failed to retrieve torrent info.": "فشل في استرداد معلومات التورنت.",
+        "Please remove forbidden characters.": "يرجى إزالة الرموز الممنوعة.",
+        "Filename cannot end with a space or period.": "لا يمكن أن ينتهي اسم الملف بمسافة أو نقطة.",
+        "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "اسم الملف يحتوي على رموز غير صالحة (مثال: \\ / : * ? \" < > |).",
+        "Metadata was not found. Torrent dead or timed out.": "لم يتم العثور على البيانات الوصفية. التورنت ميت أو انتهت المهلة.",
+        "Failed to download torrent file.": "فشل في تحميل ملف التورنت."
     }
 }
