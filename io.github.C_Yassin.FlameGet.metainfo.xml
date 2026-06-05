@@ -52,12 +52,14 @@
     </screenshots>
 
     <releases>
-        <release version="v1.3" date="2026-05-18">
+        <release version="v1.4" date="2026-06-05">
             <description>
-                <p>Added a button to drag and drop downloaded items</p>
-                <p>Fixed some UI bugs</p>
-                <p>Fixed context menu positioning bug</p>
-                <p>some performances adjustment</p>
+                <p>Added Automatic download categorization, where files are saved to different folders (issue #10)</p>
+                <p>Added Scheduled download queue with priority and bandwidth limits (issue #9)</p>
+                <p>Added WebSockets protocol (wss://)</p>
+                <p>Fixed some ghost database columns and some issues and bugs in it.</p>
+                <p>Fixed Torrent urls and Torrent-related downloading.</p>
+                <p>Fixed some micro-bugs.</p>
             </description>
         </release>
     </releases>
