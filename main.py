@@ -3887,8 +3887,9 @@ class FlameGetManager(Gtk.Application):
         key_controller.connect("key-pressed", self.on_window_key_pressed, settings_window)
         settings_window.add_controller(key_controller)
         
-        GLib.idle_add(addOn.set_titlebar_theme, settings_window.get_title(), self.app_settings.get("theme_mode"))
         settings_window.present()
+        GLib.idle_add(addOn.set_titlebar_theme, settings_window.get_title(), self.app_settings.get("theme_mode"))
+        GLib.timeout_add(50, addOn.force_center_dialog, settings_window.get_title(), "FlameGet")
 
     def apply_queue(self, btn, directory, dialogue, scheduled_time, priority, bandwidth_limit):
         mode = self.dialog_stack.get_visible_child_name()
