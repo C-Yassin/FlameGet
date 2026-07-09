@@ -1,10 +1,9 @@
 import importlib, sys, re, os
-import shutil, psutil, filecmp, json
+import shutil, psutil, filecmp, json, socket, subprocess, time, random, atexit
 
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import GLib, Gtk, Gdk
-from SaveManager import DownloadDatabase
 
 def lazy_import(name):
     spec = importlib.util.find_spec(name)
@@ -30,9 +29,6 @@ class _FileManager():
 
         os.makedirs(self.config_dir, exist_ok=True)
         os.makedirs(self.data_dir, exist_ok=True)
-
-        self.db_file = os.path.join(self.data_dir, "downloads.db")
-        self.db = self.create_db()
         
         self.is_compiled = getattr(sys, 'frozen', False) or "__compiled__" in globals()
         
@@ -49,6 +45,9 @@ class _FileManager():
         self.browser_context_menu_handler_script_path = os.path.join(self.install_dir, f"browser_context_menu_handler{ext}")
         self.server_script_path = os.path.join(self.install_dir, f"server{ext}")
         self.binaries_path = os.path.join(self.install_dir, "binaries")
+        self.themes_path = os.path.join(self.install_dir, "themes")
+        self.configs_path = os.path.join(self.install_dir, "configs")
+
         if self.is_compiled:
             self.tray_script_path = os.path.join(self.binaries_path,  "tray.exe" if os.name =="nt" else "tray.bin")
         else:
@@ -65,92 +64,95 @@ class _FileManager():
         icon_theme.add_search_path(self.icons_dir)
         
         self.setup_settings()
+
+        self.db_file = os.path.join(self.data_dir, "downloads.db")
+        self.db = self.create_db()
         
     def create_db(self):
+        from SaveManager import DownloadDatabase
         return DownloadDatabase(db_name=self.db_file)
     
     def setup_settings(self):
-        editable_files = ["translations.json", "dark_style.css", "light_style.css", "custom_style.css"]
+        internal_node = ("_internal",) if getattr(self, 'is_compiled', False) else ()
+        system_themes = os.path.join(self.install_dir, *internal_node, "themes")
+        system_configs = os.path.join(self.install_dir, *internal_node, "configs")
+        
+        user_themes = os.path.join(self.config_dir, "themes")
+        user_configs = os.path.join(self.config_dir, "configs")
 
-        for filename in editable_files:
-                user_path = os.path.join(self.config_dir, filename)
+        os.makedirs(user_themes, exist_ok=True)
+        os.makedirs(user_configs, exist_ok=True)
+
+        def copy_missing_files(src_dir, dst_dir):
+            if not os.path.exists(src_dir):
+                return
+            for item in os.listdir(src_dir):
+                s_item = os.path.join(src_dir, item)
+                d_item = os.path.join(dst_dir, item)
                 
-                if self.is_compiled:
-                    system_path = os.path.join(self.install_dir, "_internal", filename)
-                else:
-                    system_path = os.path.join(self.install_dir, filename)
+                if os.path.isdir(s_item):
+                    os.makedirs(d_item, exist_ok=True)
+                    copy_missing_files(s_item, d_item)
+                elif not os.path.exists(d_item):
+                    try:
+                        shutil.copy2(s_item, d_item)
+                        print(f"Copied missing file: {item}")
+                    except Exception as e:
+                        print(f"Failed to copy missing file {item}: {e}")
 
-                if not os.path.exists(user_path):
-                    if os.path.exists(system_path):
-                        try:
-                            shutil.copy2(system_path, user_path)
-                            print(f"Copied default {filename} to user config.")
-                        except Exception as e:
-                            print(f"Failed to copy {filename}: {e}")
-                    else:
-                        with open(user_path, 'w', encoding='utf-8') as f:
-                            if filename.endswith(".json"):
-                                f.write("{}") 
-                            else:
-                                f.write("")
-                        print(f"Made empty {filename}")
-                
-                else:
-                    if not os.path.exists(system_path):
-                        print(f"WARNING: System file {system_path} not found. Skipping update.")
-                        continue
+        copy_missing_files(system_themes, user_themes)
+        copy_missing_files(system_configs, user_configs)
 
-                    if filename.endswith(".json"):
-                        print(f"Checking {filename} for updates...")
+        for css_file in ["dark_style.css", "light_style.css"]:
+            sys_css = os.path.join(system_themes, css_file)
+            user_css = os.path.join(user_themes, css_file)
+            
+            if os.path.exists(sys_css) and os.path.exists(user_css):
+                if not filecmp.cmp(sys_css, user_css, shallow=False):
+                    try:
+                        shutil.copy2(sys_css, user_css)
+                        print(f"Updated {css_file}")
+                    except Exception as e:
+                        print(f"Failed to update {css_file}: {e}")
+
+        sys_trans = os.path.join(system_configs, "translations.json")
+        user_trans = os.path.join(user_configs, "translations.json")
+        
+        if os.path.exists(sys_trans) and os.path.exists(user_trans):
+            if not filecmp.cmp(sys_trans, user_trans, shallow=False):
+                try:
+                    with open(sys_trans, 'r', encoding='utf-8-sig') as sf:
+                        system_data = json.load(sf)
+                    with open(user_trans, 'r', encoding='utf-8-sig') as uf:
                         try:
-                            if filecmp.cmp(system_path, user_path, shallow=False):
-                                continue 
-                                
-                            with open(system_path, 'r', encoding='utf-8-sig') as sf:
-                                system_data = json.load(sf)
-                            with open(user_path, 'r', encoding='utf-8-sig') as uf:
-                                try:
-                                    user_data = json.load(uf)
-                                except json.JSONDecodeError:
-                                    user_data = {}
-                            
-                            def sync_dicts(default_dict, user_dict):
-                                has_changes = False
-                                
-                                for k, v in default_dict.items():
-                                    if k not in user_dict:
-                                        user_dict[k] = v
-                                        has_changes = True
-                                    elif isinstance(v, dict) and isinstance(user_dict[k], dict):
-                                        if sync_dicts(v, user_dict[k]):
-                                            has_changes = True
-                                            
-                                keys_to_remove = [k for k in user_dict if k not in default_dict]
-                                for k in keys_to_remove:
-                                    del user_dict[k]
+                            user_data = json.load(uf)
+                        except json.JSONDecodeError:
+                            user_data = {}
+                    
+                    def sync_dicts(default_dict, user_dict):
+                        has_changes = False
+                        for k, v in default_dict.items():
+                            if k not in user_dict:
+                                user_dict[k] = v
+                                has_changes = True
+                            elif isinstance(v, dict) and isinstance(user_dict[k], dict):
+                                if sync_dicts(v, user_dict[k]):
                                     has_changes = True
                                     
-                                return has_changes
+                        keys_to_remove = [k for k in list(user_dict.keys()) if k not in default_dict]
+                        for k in keys_to_remove:
+                            del user_dict[k]
+                            has_changes = True
+                            
+                        return has_changes
 
-                            updated = sync_dicts(system_data, user_data)
-                                    
-                            if updated:
-                                with open(user_path, 'w', encoding='utf-8', newline='') as uf:
-                                    json.dump(user_data, uf, indent=4, ensure_ascii=False)
-                                print(f"Synced {filename}: Added new keys and removed obsolete ones.")
-                            else:
-                                print(f"No changes needed for {filename}.")
-                                
-                        except Exception as e:
-                            print(f"Failed to merge {filename}: {e}")
-
-                    elif filename in ["dark_style.css", "light_style.css"]:
-                        try:
-                            if not filecmp.cmp(system_path, user_path, shallow=False):
-                                shutil.copy2(system_path, user_path)
-                                print(f"Updated {filename} with new system styles.")
-                        except Exception as e:
-                            print(f"Failed to update {filename}: {e}")
+                    if sync_dicts(system_data, user_data):
+                        with open(user_trans, 'w', encoding='utf-8', newline='') as uf:
+                            json.dump(user_data, uf, indent=4, ensure_ascii=False)
+                        print("Successfully merged translations.json")
+                        
+                except Exception as e:
+                    print(f"Failed to merge translations.json: {e}")
 
 FireFiles = _FileManager()
 
@@ -167,7 +169,6 @@ class UNITS():
     SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
     
     RUNTIME_DIR = get_temp_dir()
-   
     MULT = {
         "b": 1, "byte": 1, "bytes": 1,
 
@@ -290,6 +291,19 @@ def check_and_fix_filename(db, directory, name_to_check):
         counter += 1
 
     return new_name
+
+def get_progress_from_db(db, directory, filename):
+    cursor = db.conn.cursor()
+    cursor.execute(
+        "SELECT progress FROM downloads WHERE filename = ? AND file_directory = ?", 
+        (filename, directory)
+    )
+    result = cursor.fetchone()
+
+    if result is not None:
+        return result["progress"] 
+    else:
+        return 0
 
 def find_active_part_yt_dlp(filename, directory):
     base_name = os.path.splitext(filename)[0]
@@ -418,3 +432,74 @@ def force_center_dialog(dialog_title, parent_title=None):
     user32.SetWindowPos(hwnd_dialog, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE)
     
     return False
+
+
+class Aria2DaemonManager:
+    def __init__(self, aria2c_path, app_settings):
+        self.ARIA_PORT = 6822
+        self.aria2c_path = aria2c_path
+        self.proc = None
+        self.app_settings = app_settings
+        
+        if not self.is_port_free(self.ARIA_PORT):
+            self.get_random_port()
+
+    def get_random_port(self):
+        while True:
+            candidate = random.randint(7000, 9001)
+            if self.is_port_free(candidate):
+                self.ARIA_PORT = candidate
+                break
+
+    def is_port_free(self, port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+                return True
+            except OSError:
+                return False
+
+    def start(self):
+        master_secret = os.urandom(16).hex()
+        os.environ["FLAMEGET_ARIA_PORT"] = str(self.ARIA_PORT)
+        os.environ["FLAMEGET_ARIA_SECRET"] = master_secret
+
+        cmd = [
+            self.aria2c_path,
+            "--enable-rpc=true",
+            f"--rpc-listen-port={self.ARIA_PORT}",
+            "--rpc-allow-origin-all=true",
+            "--rpc-listen-all=false",
+            f"--max-concurrent-downloads={self.app_settings.get("max_concurrent_downloads")}",
+            "--continue=true",
+            "--file-allocation=none",
+            "--min-split-size=1M",
+            f"--max-tries={self.app_settings.get("max_retries")}",
+            "--retry-wait=3"
+        ]
+
+        def _daemon():
+            try:
+                self.proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {})
+                )
+
+                time.sleep(1.0)
+
+                if self.proc.poll() is not None:
+                    print(f"CRITICAL: Aria2c crashed instantly with exit code {self.proc.poll()}")
+                else:
+                    print(f"Aria2 Master Daemon successfully registered on {self.ARIA_PORT}!")
+                    atexit.register(self.stop)
+                    
+            except Exception as e:
+                print(f"Daemon launch failed: {e}")
+        
+        import threading
+        threading.Thread(target=_daemon, daemon=True).start()
+
+    def stop(self):
+        if self.proc: self.proc.terminate()

@@ -538,6 +538,7 @@ def main():
         ]
         cmd.extend(["--segments", str(app_settings.get("default_segments"))])
         cmd.extend(["--id", "-1"])
+
         if args.audio:
             cmd.append("--audio")
         

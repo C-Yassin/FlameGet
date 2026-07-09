@@ -1,0 +1,66 @@
+{
+    "engine": "Aria2",
+    "css_path": "/home/yassin/.config/flameget/dark_style.css",
+    "custom_css_path": "/home/yassin/.config/flameget/custom_style.css",
+    "default_segments": 8,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "confirm_delete": true,
+    "notifications": true,
+    "default_download_dir": "/home/yassin/Downloads",
+    "video_download_dir": "/home/yassin/Videos",
+    "music_download_dir": "/home/yassin/Music",
+    "image_download_dir": "/home/yassin/Pictures",
+    "program_download_dir": "/home/yassin/Downloads",
+    "document_download_dir": "/home/yassin/Documents",
+    "theme_mode": "Dark",
+    "language": "en",
+    "max_concurrent_downloads": 1,
+    "max_retries": 5,
+    "font_name": "Sans Regular 11",
+    "ui_scale": 100,
+    "start_on_boot": false,
+    "show_finish_dialog": true,
+    "enable_toasts": true,
+    "chk_has_borders": true,
+    "enable_integration": true,
+    "ctx_menu_offsets": {
+        "x": 0,
+        "y": 0
+    },
+    "start_in_minimize_mode": false,
+    "auto_start": false,
+    "global_speed_limit": "0",
+    "disable_seeding": false,
+    "cells_size": 1,
+    "browser_port": 6812,
+    "sort_column": "Date Added",
+    "sort_direction": 1,
+    "on_finish_action": "Do Nothing",
+    "custom_finish_cmd": "",
+    "shortcuts": {
+        "new_download": [
+            110,
+            4
+        ],
+        "delete": [
+            65535,
+            0
+        ],
+        "select_all": [
+            97,
+            4
+        ],
+        "open_file": [
+            111,
+            4
+        ],
+        "quit": [
+            113,
+            4
+        ],
+        "close_window": [
+            119,
+            4
+        ]
+    }
+}

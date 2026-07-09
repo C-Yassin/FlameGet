@@ -6,10 +6,13 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Gio
 
 config_dir = os.path.join(GLib.get_user_config_dir(), "flameget")
-cache_dir = os.path.join(GLib.get_user_cache_dir(), "flameget")
 
-settings_file = os.path.join(config_dir, "settings.json")
-translations_file = os.path.join(config_dir, "translations.json")
+themes_path = os.path.join(config_dir, "themes")
+configs_path = os.path.join(config_dir, "configs") 
+
+settings_file = os.path.join(configs_path, "settings.json")
+translations_file = os.path.join(configs_path, "translations.json")
+
 global_style_provider = None
 
 def load_translations():
@@ -40,10 +43,10 @@ def load_css(theme=""):
 
     print(f"Switching to theme: {theme}")
     if theme == "Custom":
-        css_path = os.path.join(config_dir, "custom_style.css")
+        css_path = os.path.join(themes_path, "custom_style.css")
     else:
-        css_path = os.path.join(config_dir, f"{theme.lower()}_style.css")
-
+        css_path = os.path.join(themes_path, f"{theme.lower()}_style.css")
+    print(css_path)
     css_provider = Gtk.CssProvider()
     css_file = Gio.File.new_for_path(css_path)
     
@@ -76,17 +79,14 @@ def load_css(theme=""):
 
 def save_settings(app_settings):
     try:
-        if not os.path.exists(config_dir):
-            os.makedirs(config_dir, exist_ok=True)
-            
         with open(settings_file, 'w') as f:
             json.dump(app_settings, f, indent=4)
     except Exception as e:
         print(f"Failed to save settings: {e}")
 
 def load_settings(download_folder=""):
-    default_css = os.path.join(config_dir, "dark_style.css")
-    custom_css = os.path.join(config_dir, "custom_style.css")
+    default_css = os.path.join(themes_path, "dark_style.css")
+    custom_css = os.path.join(themes_path, "custom_style.css")
     
     home_dir = GLib.get_home_dir()
     sys_downloads = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD) or home_dir
@@ -117,7 +117,7 @@ def load_settings(download_folder=""):
         
         "theme_mode": "Dark",
         "language": "en",
-        "max_concurrent_downloads": 1,
+        "max_concurrent_downloads": 8,
         "max_retries": 5,
         "font_name": "Sans Regular 11",
         "ui_scale": 100,

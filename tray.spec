@@ -3,7 +3,7 @@ import os
 import sys
 
 base_datas = [
-    ('flameget.png', '.'),
+    ('icons/flameget.png', '.'),
 ]
 base_excludes = [
     'tkinter', 'unittest'

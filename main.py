@@ -248,6 +248,11 @@ class FlameGetManager(Gtk.Application):
         self.context_menu_btns = []
         self.current_toast = None
         self.is_rtl = False
+        self.master_daemon = None
+        if self.app_settings.get("engine") == "Aria2":
+            self.master_daemon = addOn.Aria2DaemonManager(addOn.FireFiles.aria2c_path, self.app_settings)
+            self.master_daemon.start()
+
         self.setup_signal_handlers()
 
     def do_activate(self):
@@ -880,7 +885,7 @@ class FlameGetManager(Gtk.Application):
         main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         sidebar = Gtk.ListBox()
         sidebar.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        sidebar.set_size_request(200, -1)
+        sidebar.set_size_request(200, 700)
         sidebar.add_css_class("navigation-sidebar")
         
         stack = Gtk.Stack()
@@ -929,38 +934,49 @@ class FlameGetManager(Gtk.Application):
                 fd.select_folder(dialog, None, on_d_done)
             return on_dir_pick
 
-        dir_grid = Gtk.Grid(row_spacing=12, column_spacing=15)
-        gen_box.append(dir_grid)
+        def add_dir_row(target_grid, row_idx, key, label_text):
+            label = Gtk.Label(label=label_text)
+            label.set_halign(Gtk.Align.START)
+            label.set_valign(Gtk.Align.CENTER)
+            target_grid.attach(label, 0, row_idx, 1, 1)
+            
+            dir_entry = Gtk.Entry()
+            dir_entry.set_hexpand(True)
+            dir_entry.set_editable(False)
+            dir_entry.add_css_class("entry")
+            dir_entry.set_text(self.app_settings.get(key, ""))
+            dir_entry.set_valign(Gtk.Align.CENTER)
+            target_grid.attach(dir_entry, 1, row_idx, 1, 1)
+            
+            btn_dir = Gtk.Button(icon_name="xsi-folder-open-symbolic")
+            btn_dir.add_css_class("blue-btn")
+            btn_dir.set_valign(Gtk.Align.CENTER)
+            btn_dir.connect("clicked", create_dir_picker_callback(key, dir_entry))
+            target_grid.attach(btn_dir, 2, row_idx, 1, 1)
+
+        default_grid = Gtk.Grid(row_spacing=12, column_spacing=15)
+        gen_box.append(default_grid)
+        
+        add_dir_row(default_grid, 0, "default_download_dir", "Default")
+
+        category_expander = Gtk.Expander(label=tr("Specific Category Locations"))
+        gen_box.append(category_expander)
+
+        advanced_grid = Gtk.Grid(row_spacing=12, column_spacing=15)
+        advanced_grid.set_margin_top(12)
+        category_expander.set_child(advanced_grid)
 
         download_dirs = {
-            "default_download_dir": "Default",
             "video_download_dir": "Videos",
             "music_download_dir": "Music",
             "image_download_dir": "Images",
             "program_download_dir": "Programs",
             "document_download_dir": "Documents"
         }
+        
         row = 0
         for setting_key, label_text in download_dirs.items():
-            label = Gtk.Label(label=label_text)
-            label.set_halign(Gtk.Align.START)
-            label.set_valign(Gtk.Align.CENTER)
-            dir_grid.attach(label, 0, row, 1, 1)
-            
-            dir_entry = Gtk.Entry()
-            dir_entry.set_hexpand(True)
-            dir_entry.set_editable(False)
-            dir_entry.add_css_class("entry")
-            dir_entry.set_text(self.app_settings.get(setting_key, ""))
-            dir_entry.set_valign(Gtk.Align.CENTER)
-            dir_grid.attach(dir_entry, 1, row, 1, 1)
-            
-            btn_dir = Gtk.Button(icon_name="xsi-folder-open-symbolic")
-            btn_dir.add_css_class("blue-btn")
-            btn_dir.set_valign(Gtk.Align.CENTER)
-            btn_dir.connect("clicked", create_dir_picker_callback(setting_key, dir_entry))
-            dir_grid.attach(btn_dir, 2, row, 1, 1)
-            
+            add_dir_row(advanced_grid, row, setting_key, label_text)
             row += 1
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -1137,6 +1153,12 @@ class FlameGetManager(Gtk.Application):
         def on_eng_change(dd, p):
             self.app_settings["engine"] = "Curl" if dd.get_selected() == 1 else "Aria2"
             self.download_engine = self.app_settings["engine"].lower()
+            if self.download_engine == "aria2" and self.master_daemon == None:
+                self.master_daemon = addOn.Aria2DaemonManager(addOn.FireFiles.aria2c_path, self.app_settings)
+                self.master_daemon.start()
+            else:
+                if self.master_daemon != None: self.master_daemon.stop()
+                self.master_daemon = None
             save_settings(self.app_settings)
         dd_eng.connect("notify::selected", on_eng_change)
         net_box.append(dd_eng)
@@ -4134,8 +4156,8 @@ class FlameGetManager(Gtk.Application):
                 continue
 
             try:
-                if os.name != 'nt':
-                    downloader_sock = f"{'\0' if is_flatpak_env else ''}flameget_dl_{pid}{'' if is_flatpak_env else '.sock'}"
+                if os.name != 'nt' and is_flatpak_env:
+                    downloader_sock = f"\0flameget_dl_{pid}"
                 else:
                     downloader_sock = os.path.join(addOn.UNITS.RUNTIME_DIR, f"flameget_dl_{pid}.sock")
 
@@ -4456,8 +4478,7 @@ class FlameGetManager(Gtk.Application):
             except Exception as e:
                 print(f"Windows autostart failed: {e}")
             return
-        autostart_dir = os.path.join(GLib.get_user_config_dir(), "autostart")
-        desktop_file = os.path.join(autostart_dir, "flameget.desktop")
+        desktop_file = os.path.join(addOn.FireFiles.config_dir, "flameget.desktop")
 
         if is_flatpak_env:
             try:
@@ -4492,7 +4513,6 @@ class FlameGetManager(Gtk.Application):
                 print(f"Failed to {action_word} autostart portal via Gio: {e}")
         else:
             if enable:
-                os.makedirs(autostart_dir, exist_ok=True)
                 if getattr(sys, 'frozen', False):
                     exec_cmd = f"{sys.executable}"
                 else:
@@ -4985,7 +5005,7 @@ class FlameGetManager(Gtk.Application):
 
     def emergency_cleanup(self, signum, frame):
         if self.tray_process: self.stop_tray_subprocess()
-
+        if self.master_daemon != None: self.master_daemon.stop()
         try:
             cursor = self.db.conn.cursor()
             cursor.execute("SELECT id, filename, pid FROM downloads WHERE status IN ('downloading', 'Seeding', 'Paused')")
@@ -5154,7 +5174,6 @@ class FireServer:
 
     def __init__(self, app_settings, downloader_script_path, browser_context_menu_handler_script_path):
         self.flask_app = self.Flask(__name__)
-
         self.downloader_script_path = downloader_script_path
         self.browser_context_menu_handler_script_path = browser_context_menu_handler_script_path
         self.app_settings = app_settings
@@ -5301,49 +5320,14 @@ class FireServer:
         if cookies: cmd.append(f"--cookies={cookies}")
         if user_agent: cmd.append(f"--user-agent={user_agent}")
         if referer: cmd.append(f"--referer={referer}")
-        cmd.append("--pass_check")
         
         subprocess.Popen(cmd, env=worker_env)
         return FireServer.jsonify({"status": "ok", "filename": filename})
-
-    def diagnose_server_port(self, port):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
-            is_occupied = (s.connect_ex(('127.0.0.1', port)) == 0)
-            
-        if not is_occupied:
-            return "DEAD"
-
-        try:
-            url = f"http://127.0.0.1:{port}/sync"
-            req = self.urllib.request.Request(url, method="GET")
-            
-            with self.urllib.request.urlopen(req, timeout=1.0) as response:
-                if response.status == 200:
-                    return "HEALTHY"
-                    
-        except: pass
-
-        return "HIJACKED_OR_FROZEN"
 
     def server_main(self):
         base_port = int(self.app_settings.get("browser_port", 6812))
         try:
             print(f"Attempting to start server on 127.0.0.1:{base_port}...")   
-            status = self.diagnose_server_port(base_port)
-            
-            if status == "HEALTHY":
-                print(f"Server is already running and healthy on port {base_port}.")
-                return
-                
-            elif status == "HIJACKED_OR_FROZEN":
-                print(f"CRITICAL: Port {base_port} is hijacked by another app!")
-                self.notify_main_ui(f"Port {base_port} is busy! Please change it in settings.", is_error=True)
-                return
-                
-            elif status == "DEAD":
-                print("Port is free. Starting server...")
-            
             FireServer.serve(self.flask_app, host='127.0.0.1', port=base_port, threads=4)
             
         except OSError as e:

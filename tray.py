@@ -48,14 +48,11 @@ class TrayApp:
             base_config = os.getenv('APPDATA', os.path.expanduser('~'))
             base_data = os.getenv('LOCALAPPDATA', base_config)
             self.config_dir = os.path.join(base_data, "flameget")
-            self.data_dir = os.path.join(base_data, "flameget")
         else:
             if not is_flatpak_env:
                 self.config_dir = os.path.join(GLib.get_user_config_dir(), "flameget")
-                self.data_dir = os.path.join(GLib.get_user_data_dir(), "flameget")
             else:
                 self.config_dir = os.path.expanduser("~/.config/flameget")
-                self.data_dir = os.path.expanduser("~/.local/share/flameget")
             
         self.is_compiled = getattr(sys, 'frozen', False) or "__compiled__" in globals()
         
@@ -66,9 +63,12 @@ class TrayApp:
             self.current_exe = sys.executable
             self.install_dir = os.path.dirname(os.path.abspath(__file__))
 
-        self.settings_file = os.path.join(self.config_dir, "settings.json")
-        translations_file = os.path.join(self.config_dir, "translations.json")
+        configs_path = os.path.join(self.config_dir, "configs") 
+
+        self.settings_file = os.path.join(configs_path, "settings.json")
+        translations_file = os.path.join(configs_path, "translations.json")
         self.translations = self.load_translations(translations_file)
+
         self.app_settings = self.load_settings()
         self.icons_dir = os.path.join(self.install_dir, "icons")
         self.running = True
@@ -77,7 +77,6 @@ class TrayApp:
             self.parent_pid = os.getppid()
             threading.Thread(target=self._monitor_parent, daemon=True).start()
             self.setup_windows_tray()
-            
         else:
             if self.app_settings.get("language") == "ar":
                 Gtk.Widget.set_default_direction(Gtk.TextDirection.RTL)
@@ -108,7 +107,7 @@ class TrayApp:
         return os.path.join(base_path, relative_path)
 
     def setup_windows_tray(self):
-        possible_file = self.get_resource_path("flameget.png")
+        possible_file = os.path.join(self.icons_dir, "flameget.png")
         if os.path.exists(possible_file):
             image = Image.open(possible_file)
         else:
@@ -213,7 +212,7 @@ class TrayApp:
             icon_widget = Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.MENU)
 
         if icon_widget is None:
-             icon_widget = Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.MENU)
+            icon_widget = Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.MENU)
 
         icon_widget.set_pixel_size(16)
         
@@ -276,10 +275,7 @@ class TrayApp:
                                     if os.name == 'nt':
                                         self.handle_pid_update(proc_id, proc_port, file_name, progress, status)
                                     else:
-                                        GLib.idle_add(
-                                            self.handle_pid_update, 
-                                            proc_id, proc_port, file_name, progress, status
-                                        )
+                                        GLib.idle_add(self.handle_pid_update, proc_id, proc_port, file_name, progress, status)
                                 else:
                                     print(f"DEBUG Not enough parts! len={len(parts)}")
                                     
@@ -393,28 +389,32 @@ class TrayApp:
             print(f"Failed to send signal: {e}")
 
     def send_command(self, cmd, target_socket=None):
-        sock_path = target_socket if target_socket else MAIN_APP_SOCKET
         try:
             if os.name != 'nt':
+                sock_path = target_socket if target_socket else MAIN_APP_SOCKET
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                     s.connect(sock_path)
                     s.sendall(cmd.encode('utf-8'))
             else:
+                target_port = target_socket if isinstance(target_socket, int) else WINDOWS_MAIN_PORT
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect(('127.0.0.1', WINDOWS_MAIN_PORT))
+                    s.connect(('127.0.0.1', target_port))
                     s.sendall(cmd.encode('utf-8'))
+                    
         except (ConnectionRefusedError, FileNotFoundError):
-            print(f"Target not running? ({sock_path})")
+            print(f"Target not running? ({target_socket})")
         except OSError as e:
             print(f"Socket error while sending command: {e}")
 
     def toggle(self, widget, pid, port):
-        if os.name == 'nt':
-            downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
-            self.send_windows_command("toggle_pid", target_socket=downloader_sock)
-        else:
-            downloader_sock = f"{"\0" if is_flatpak_env else ""}flameget_dl_{pid}_{port}{"" if is_flatpak_env else ".sock"}"
+        if os.name != 'nt':
+            if is_flatpak_env:
+                downloader_sock = f"\0flameget_dl_{pid}_{port}"
+            else:
+                downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
             self.send_command("toggle_pid", target_socket=downloader_sock)
+        else:
+            self.send_command("toggle_pid", target_socket=int(port))
 
     def send_windows_command(self, cmd, target_socket=None):
         try:

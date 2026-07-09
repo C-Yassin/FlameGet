@@ -18,8 +18,8 @@ yt_dlp = addOn.lazy_import("yt_dlp")
 pycurl = addOn.lazy_import("pycurl")
 requests = addOn.lazy_import("requests")
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
-if os.name != 'nt':
-    TRAY_SOCKET_PATH = f"{"\0" if is_flatpak_env else ""}flameget_tray_listener{"" if is_flatpak_env else ".sock"}"
+if os.name != 'nt' and is_flatpak_env:
+    TRAY_SOCKET_PATH = "\0flameget_tray_listener"
 else:
     TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
 
@@ -27,7 +27,7 @@ WINDOWS_TRAY_PORT = 18598
 #for the stupid range detection     
 ARIA2_SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
 HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
-
+HAS_SIGTERM = hasattr(signal, "SIGTERM")
 class TorrentNode(GObject.Object):
     __gtype_name__ = 'TorrentNode'
 
@@ -116,7 +116,7 @@ class TorrentNode(GObject.Object):
             self.parent.recalculate_state()
 
 class DownloadWindow(Gtk.ApplicationWindow):
-    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None, pass_check=False, check_256sum=None):
+    def __init__(self, app_manager, url, FileName, file_size=0, file_directory="", segments=8, id=-1, in_minimize_mode=False, is_audio=False, quality_mod="Best Available", download_playlist=False, include_subs=False, include_thumb=False, is_yt_dlp=False, speed_limit=0, torrent_indices="", torrent_files_data=[], trackers="", cookies=None, user_agent=None, referer=None, check_256sum=None, current_progress=0):
         super().__init__(application=app_manager)
 
         self.conn = addOn.FireFiles.db.conn
@@ -125,9 +125,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.runtime_dir = addOn.UNITS.RUNTIME_DIR
         # Use port in socket name to prevent collision if multiple windows open in the same process
         self.port = random.randint(50000, 60000)
+        self.rpc_port = int(os.environ.get("FLAMEGET_ARIA_PORT", 6822))
+        self.rpc_secret = os.environ.get("FLAMEGET_ARIA_SECRET", "")
+        
         self.pid = os.getpid()
-        if os.name != 'nt':
-            self.DOWNLOADER_SOCKET = f"{"\0" if is_flatpak_env else ""}flameget_dl_{self.pid}_{self.port}{"" if is_flatpak_env else ".sock"}"
+        if os.name != 'nt' and is_flatpak_env:
+            self.DOWNLOADER_SOCKET = f"\0flameget_dl_{self.pid}_{self.port}"
         else:
             self.DOWNLOADER_SOCKET = os.path.join(self.runtime_dir, f"flameget_dl_{self.pid}_{self.port}.sock")
 
@@ -153,10 +156,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.file_size_bytes = file_size
         self.cookies = cookies
         self.referer = referer
-        self.pass_check = pass_check
         # yt_dlp params:
         self.is_yt_dlp = is_yt_dlp if is_yt_dlp else self.does_support_yt_dlp(self.url)
-        self.progress = 0
+        self.progress = current_progress
         self.eta_str = "--:--"
         self.speed_str = "--"
         self.has_inserted = False
@@ -233,7 +235,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.pulsing = False
         self.progress_bars = []
         self.limit_speed = speed_limit
-        self.lock_file = ""
         self.download_button = Gtk.Button(label=tr("Download"))
         self.did_download_button_get_clicked = False
         self.is_resumable = False
@@ -291,6 +292,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.toggle_visibility()
         
         if HAS_SIGUSR1: signal.signal(signal.SIGUSR1, lambda signum, frame: GLib.idle_add(self.on_pause_clicked, None))
+        if HAS_SIGTERM: signal.signal(signal.SIGTERM, lambda signum, frame: GLib.idle_add(self.exit))
 
     def get_download_dir(self, file_directory, saved_dir):
         if saved_dir and os.path.exists(saved_dir):
@@ -346,12 +348,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         if hasattr(self, 'cancel_event'):
             self.cancel_event.set()
 
-        if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
-            os.remove(self.lock_file)
-
-        if hasattr(self, 'aria_proc'):
-            self.aria_proc.terminate()
-
         self.pause_download(exit=True)
 
         if hasattr(self, 'conn'):
@@ -367,12 +363,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         self.destroy()
 
-    def get_file_info(self, url, pass_check=False):
+    def get_file_info(self, url):
         if self.download_playlist:
-            return True, 0, "Playlist"
-
-        if not self.is_yt_dlp and pass_check:
-            return False, 0, "Unknown" 
+            return True, 0, "Playlist", 202
 
         supports = False
         file_size = 0
@@ -468,7 +461,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         
                 except Exception as e:
                     print("error in get_file_info thread ",e)
-                    return False, 0, filename
+                    return False, 0, filename, 404
                 
                 finally:
                     proc.terminate()
@@ -483,9 +476,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
                             filename = f
                             break
 
-                if os.path.exists(save_path_template):
-                    shutil.rmtree(save_path_template, ignore_errors=True)
-                return supports, file_size, filename
+                if os.path.exists(save_path_template): shutil.rmtree(save_path_template, ignore_errors=True)
+
+                return supports, file_size, filename, 202
             else:
                 try:
                     headers = {
@@ -519,11 +512,17 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         name = os.path.basename(parsed.path)
                         if name: filename = name
 
-                    return supports, file_size, filename
+                    return supports, file_size, filename, response.status_code
 
                 except Exception as e:
                     print(f"Error getting precise file info: {e}")
-                    return False, 0, filename
+                    self.pause_event.clear() 
+                    self.download_started = False
+                    
+                    GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
+                    GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
+                    GLib.idle_add(self.reset_ui)
+                    return False, 0, filename, 404
 
     def fetch_head_info(self, url, file_size):
         GLib.idle_add(self.prepare_ui_for_fetch)
@@ -537,7 +536,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 self.fetch_db_querry(self.download_id)
 
             if not self.file_size_bytes:
-                self.is_supporting_range, file_size, filename = self.get_file_info(url, self.pass_check)
+                self.is_supporting_range, file_size, filename, err_code = self.get_file_info(url)
+                if err_code == 404: return
                 
                 if not self.FileName or self.FileName == "UNKNOWN":
                     self.FileName = filename
@@ -556,23 +556,9 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 file_size_str = addOn.parse_size(self.file_size_bytes)
             
             size_markup = f"{tr('File Size:')} <b>{file_size_str}</b>"
+            if self.progress > 0: download_label = "Resume"
+            else: download_label = "Download"
 
-            download_label = "Download"
-            
-            if getattr(self, 'is_yt_dlp', False):
-                path = addOn.find_active_part_yt_dlp(self.FileName, self.download_folder)
-                if path and os.path.exists(path):
-                    download_label = "Resume"
-            else:
-                if getattr(self, 'download_engine', '') == "aria2":
-                    if hasattr(self, 'output_file') and os.path.exists(self.output_file) and os.path.exists(self.output_file + ".aria2"):
-                        download_label = "Resume"
-                        percent = (os.path.getsize(self.output_file) / self.file_size_bytes) * 100 if self.file_size_bytes > 0 else 0
-                        self.progress = float(percent)
-                else:
-                    if hasattr(self, 'part_files') and self.part_files and os.path.exists(self.part_files[0]):
-                        download_label = "Resume"
-            
             if download_label == "Resume": self.is_resumable = True
             GLib.idle_add(self.on_fetch_complete, size_markup, file_size_str, tr(download_label))
 
@@ -1131,17 +1117,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         GLib.idle_add(self.download_button.add_css_class, "green-btn")
         GLib.idle_add(self.download_button.remove_css_class, "generic-button")
-        GLib.idle_add(self.download_button.set_label, tr("Download"))
-        if self.canDownload:
-            GLib.idle_add(self.download_button.set_sensitive, True)
-        self.download_button.set_label(download_label)
+        GLib.idle_add(self.download_button.set_label, download_label)
+        if self.canDownload: GLib.idle_add(self.download_button.set_sensitive, True)
         self.create_db_entry()
 
         if hasattr(self, "new_torrent_name") and self.new_torrent_name:
-            # we remove the init lock we made
-            if os.path.exists(self.lock_file):
-                try: os.remove(self.lock_file)
-                except: pass
             cursor = self.conn.cursor()
             cursor.execute("""
                 UPDATE downloads SET
@@ -1406,8 +1386,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
             print(f"Failed to update segments in DB: {e}")
 
         if getattr(self, 'download_engine', '') == "curl":
-            GLib.idle_add(self.rebuild_progress_bar)
-
             css_provider = Gtk.CssProvider()
             if self.segments_count in (8, 9, 10):
                 css_data = {
@@ -1624,9 +1602,8 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.est_time_label.set_visible(False)
         box.append(self.est_time_label)
         self.progress_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        GLib.idle_add(self.rebuild_progress_bar)
-
         self.progress_box.set_visible(False)
+        GLib.idle_add(self.rebuild_progress_bar)
         box.append(self.progress_box)
 
         button_box = Gtk.Box(spacing=10)
@@ -1875,71 +1852,26 @@ class DownloadWindow(Gtk.ApplicationWindow):
             print(f"Failed to update DB before download: {e}")
 
         if self.is_yt_dlp:
-            self.lock_file = self.output_file + '.lock'
-            if not os.path.exists(self.lock_file):
-                open(self.lock_file, 'w').close()
-            else:
-                # wtf! how did you even get here!
-                self.status_label.set_label(tr("File is Already Downloading!"))
-                self.status_label.set_name("red-text")
-                return False
-            
-            self.download_started = True
-            self.status_label.set_name("")
-            self.is_canceled = False
-            self.status_label.set_text(tr("Downloading Video..."))
-            self.editFileName_entry.set_sensitive(False)
-            self.folder_entry.set_sensitive(False)
-            self.download_button.set_visible(False)
-            self.select_folder_button.set_sensitive(False)
-            self.pause_button.set_visible(True)
-            self.cancel_button.set_visible(True)
-            self.progress_box.set_visible(True)
-            self.est_time_label.set_visible(True)
-            self.start_time = time.time()
-            self.pause_event.set()
-            self.cancel_event.clear()
-
+            self.download_UI_started("Downloading Video...")
             threading.Thread(target=self.download_using_YTDLP).start()
             return False
         if not self.is_torrent:
-            if self.download_engine == "aria2":
-                if os.path.exists(self.lock_file) or (os.path.exists(self.output_file) and os.path.getsize(self.output_file) >= self.file_size_bytes):
+            is_currently_downloading = getattr(self, 'download_started', False)
+            if getattr(self, 'download_engine', '') == "aria2":
+                is_fully_downloaded = os.path.exists(self.output_file) and os.path.getsize(self.output_file) >= self.file_size_bytes
+                
+                if is_currently_downloading or is_fully_downloaded:
                     self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{tr("File already exists.")}</span></b>')
                     self.on_shake(self.editFileName_entry)
                     return False
             else:
-                if os.path.exists(self.lock_file) or os.path.exists(self.output_file):
+                if is_currently_downloading or os.path.exists(self.output_file):
                     self.status_label.set_markup(f'<b><span underline="low" color="#ff0026">{tr("File already exists.")}</span></b>')
                     self.on_shake(self.editFileName_entry)
                     return False
 
-        # TO fix a really stupid bug, fucking create a lock file
-        self.lock_file = self.output_file + '.lock'
-        if not os.path.exists(self.lock_file):
-            open(self.lock_file, 'w').close()
-
-        self.status_label.set_name("")
         self.segment_size = self.file_size_bytes // self.segments_count
-        self.download_started = True
-        self.is_canceled = False
-        self.status_label.set_text(tr("Downloading..."))
-        self.editFileName_entry.set_sensitive(False)
-        self.folder_entry.set_sensitive(False)
-        self.download_button.set_visible(False)
-        self.select_folder_button.set_sensitive(False)
-        
-        if self.is_supporting_range or self.is_torrent:
-            self.pause_button.set_visible(True)
-        
-        self.cancel_button.set_visible(True)
-        self.progress_box.set_visible(True)
-        self.est_time_label.set_visible(True)
-        self.connections_spin.set_sensitive(False)
-        self.speed_limit_entry.set_sensitive(False)
-        self.start_time = time.time()
-        self.pause_event.set()
-        self.cancel_event.clear()
+        self.download_UI_started("Downloading...")
 
         if self.is_supporting_range or self.is_torrent:
             if self.download_engine == "aria2":
@@ -1950,19 +1882,17 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     end = self.file_size_bytes - 1 if i == self.segments_count - 1 else (start + self.segment_size - 1)
                     threading.Thread(target=self.download_segment, args=(start, end, i)).start()
         else:
-            GLib.idle_add(self.rebuild_progress_bar)
-
             self.part_files.clear()
             self.part_files.append(self.output_file)
             
             if self.download_engine == "aria2":
-               threading.Thread(target=self.download_using_ARIA2).start()
+                threading.Thread(target=self.download_using_ARIA2).start()
             else:
-               threading.Thread(target=self.download_single_thread).start()
-
+                threading.Thread(target=self.download_using_CURL, kwargs={"is_headless": True}).start()
+                
         return False
 
-    def rebuild_progress_bar(self):
+    def rebuild_progress_bar(self, is_headless=False):
         for pb in self.progress_bars: 
             self.progress_box.remove(pb)
         self.progress_bars.clear()
@@ -1978,31 +1908,54 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.progress_box.append(pb)
 
         if self.download_engine == "curl":
-            for i in range(self.segments_count):
-                create_pb(add_divider=(i != 0))
+            if is_headless: 
+                create_pb(add_divider=False)
+            else:
+                for i in range(self.segments_count): create_pb(add_divider=(i != 0))
         else: 
             create_pb(add_divider=False)
             
         return False
+            
+    def resume_download_segment(self, start, end, index):
+        if not self.is_connected():
+            GLib.idle_add(self.reset_ui)
+            GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
+            GLib.idle_add(self.download_button.set_label, tr("No internet connection."))
+            return
 
-    def download_single_thread(self):        
-        self.connections_spin.set_sensitive(False)
-        self.status_label.set_text(tr("Downloading..."))
-        self.start_pulsing()
+        GLib.idle_add(self.connections_spin.set_sensitive, False)
+        GLib.idle_add(self.rebuild_progress_bar)
+        
+        part_file = self.part_files[index]
+        total_expected_size = end - start + 1
+        
+        already_downloaded = os.path.getsize(part_file) if os.path.exists(part_file) else 0
+
+        if already_downloaded >= total_expected_size:
+            print(f"Part {index} already perfectly downloaded. Marking as finished.")
+            GLib.idle_add(self.progress_bars[index].set_fraction, 1.0)
+            with self.lock:
+                GLib.idle_add(self.on_segment_finished)
+            return
+
+        resume_from = start + already_downloaded
 
         c = pycurl.Curl()
         c.setopt(c.URL, self.url)
         c.setopt(c.FOLLOWLOCATION, 1)
         c.setopt(c.NOPROGRESS, 0)
         c.setopt(c.FAILONERROR, True)
+        c.setopt(c.FORBID_REUSE, 1)
+        c.setopt(c.BUFFERSIZE, 1024 * 128)
         
-        c.setopt(c.BUFFERSIZE, 1024 * 32) 
-
-        if self.user_agent: c.setopt(c.USERAGENT, self.user_agent)
-        if self.cookies: c.setopt(c.COOKIEFILE, self.cookies)
-        if self.referer: c.setopt(c.REFERER, self.referer)
+        c.setopt(c.RANGE, f"{resume_from}-{end}")
         
-        if self.limit_speed:
+        if getattr(self, 'user_agent', None): c.setopt(c.USERAGENT, self.user_agent)
+        if getattr(self, 'cookies', None): c.setopt(c.COOKIEFILE, self.cookies)
+        if getattr(self, 'referer', None): c.setopt(c.REFERER, self.referer)
+        
+        if getattr(self, 'limit_speed', None):
             try:
                 speed_val = int(self.limit_speed)
                 if speed_val > 0:
@@ -2014,19 +1967,29 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         def progress_callback(dltotal, dlnow, ultotal, ulnow):
             nonlocal last_update_time
-            
+
             if self.cancel_event.is_set() or not self.pause_event.is_set():
-                return 1
+                return 1 
 
             current_time = time.time()
             if current_time - last_update_time > 0.2:
                 last_update_time = current_time
-                self.calculate_time(dlnow)
+                
+                current_total = already_downloaded + dlnow
+                fraction = min(current_total / total_expected_size, 1.0)
+                
+                GLib.idle_add(self.progress_bars[index].set_fraction, fraction)
+                
+                try:
+                    all_dl = sum(os.path.getsize(p) if os.path.exists(p) else 0 for p in self.part_files)
+                    self.calculate_time(all_dl)
+                except Exception:
+                    pass
 
         c.setopt(c.XFERINFOFUNCTION, progress_callback)
 
         try:
-            with open(self.output_file, "wb") as f:
+            with open(part_file, 'ab') as f:
                 c.setopt(c.WRITEDATA, f)
                 c.perform()
                 
@@ -2034,77 +1997,27 @@ class DownloadWindow(Gtk.ApplicationWindow):
             err_code, err_msg = e.args[0], e.args[1]
             
             if err_code == pycurl.E_ABORTED_BY_CALLBACK:
-                print("Download paused cleanly by user.")
-                return 
-            else:
-                print(f"PycURL Error {err_code}: {err_msg}")
-                if "resolve" in str(err_msg).lower() or "timeout" in str(err_msg).lower() or "connect" in str(err_msg).lower():
-                    GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-                    GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
-                
-                GLib.idle_add(self.reset_ui)
-                if os.path.exists(self.lock_file):
-                    try: os.remove(self.lock_file)
-                    except: pass
+                if not self.pause_event.is_set():
+                    print(f"Part {index} paused safely.")
                 return
+            else:
+                print(f"PycURL Error on part {index}: {err_code} - {err_msg}")
         finally:
             c.close()
-            self.stop_pulsing()
 
-        with self.lock:
-            GLib.idle_add(self.on_segment_finished)
-            
-    def resume_download_segment(self, start, end, index):
-        if not self.is_connected():
-            GLib.idle_add(self.reset_ui)
-            GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-            GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
-            print("No internet connection. Please reconnect")
-            if os.path.exists(self.lock_file):
-                os.remove(self.lock_file)
-            return
-
-        self.connections_spin.set_sensitive(False)
-        part_file = self.part_files[index]
-        resume_from = start
-        already_downloaded = 0
+        final_size = os.path.getsize(part_file) if os.path.exists(part_file) else 0
         
-        headers = {'Range': f'bytes={resume_from}-{end}'}
-        try:
-            with requests.get(self.url, stream=True, headers=headers) as r:
-                if r.status_code != 206:
-                    print(f"Server did not honor Range header for part {index}")
-                    return
-                with open(part_file, 'ab') as f:
-                    downloaded_this_session = 0
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if self.cancel_event.is_set():
-                            if os.path.exists(self.lock_file):
-                                os.remove(self.lock_file)
-                            return
-                        while not self.pause_event.is_set():
-                            GLib.usleep(100_000)
-                            return
-                        if chunk:
-                            f.write(chunk)
-                            downloaded_this_session += len(chunk)
-
-                            total_downloaded = already_downloaded + downloaded_this_session
-                            total_part_size = end - start + 1
-
-                            GLib.idle_add(self.progress_bars[index].set_fraction, total_downloaded / total_part_size)
-
-                            all_downloaded = sum(os.path.getsize(p) if os.path.exists(p) else 0 for p in self.part_files)
-                            
-                            self.calculate_time(all_downloaded)
-
-                            if total_downloaded >= total_part_size:
-                                break
-        except Exception as e:
-            print("Network error:", e)
-
-        with self.lock:
-            GLib.idle_add(self.on_segment_finished)
+        if final_size >= total_expected_size:
+            with self.lock:
+                GLib.idle_add(self.on_segment_finished)
+        else:
+            print(f"CRITICAL: Part {index} dropped prematurely! ({final_size}/{total_expected_size} bytes)")
+            if os.path.exists(part_file): os.remove(part_file)
+            if not self.cancel_event.is_set() and self.pause_event.is_set():
+                self.pause_event.clear()
+                GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
+                GLib.idle_add(self.download_button.set_label, tr("Connection dropped. Please resume."))
+                GLib.idle_add(self.reset_ui)
 
     def download_segment(self, start, end, index):
         if not self.is_connected():
@@ -2112,86 +2025,11 @@ class DownloadWindow(Gtk.ApplicationWindow):
             return
         self.download_using_CURL(start, end, index)
         
-    #fuck you curl (jk)!
     def download_using_ARIA2(self):
         self.connections_spin.set_sensitive(False)
         GLib.idle_add(self.rebuild_progress_bar)
-        GLib.idle_add(self.progress_bars[0].set_fraction, float(self.progress) /100)
-        found = False
-        while not found:
-            rpc_port_candidates = random.randint(7000, 9001)
-            torrent_listening_port_candidates = random.randint(40000, 50000)
-
-            if self.is_port_free(rpc_port_candidates) and self.is_port_free(torrent_listening_port_candidates):
-                self.rpc_port = rpc_port_candidates
-                self.torrent_listening_port = torrent_listening_port_candidates
-                found = True
-        self.rpc_secret = os.urandom(16).hex()
-        
-        if self.is_torrent:
-            self.status_label.set_text(tr("Checking Integrity..."))
-            GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
-            self.progress_bars[0].add_css_class("dashed-bar")
-            cmd = [
-                addOn.FireFiles.aria2c_path,
-                "--enable-rpc",
-                f"--rpc-listen-port={self.rpc_port}",
-                f"--rpc-secret={self.rpc_secret}",
-                f"--dht-listen-port={torrent_listening_port_candidates}",
-                f"--listen-port={torrent_listening_port_candidates}",
-                "--enable-dht=true",
-                "--bt-enable-lpd=true",
-                "--peer-id-prefix=-qb6969-",
-                "--enable-mmap=true",
-                "--file-allocation=none",
-                "--check-integrity=true",
-                "--pause-metadata=true",
-                "-d", self.download_folder,
-            ]
-            if self.app_settings.get("seed_limiting"):
-                ratio = self.app_settings.get("seed_ratio", "1.0")
-                seed_time = self.app_settings.get("seed_time", "0")
-                cmd.append(f"--seed-ratio={ratio}")
-                cmd.append(f"--seed-time={seed_time}")
-            if self.custom_trackers:
-                cmd.append(f"--bt-tracker={self.custom_trackers}")
-        else:
-            cmd = [
-                addOn.FireFiles.aria2c_path,
-                "--continue=true",
-                "--enable-rpc",
-                f"--rpc-listen-port={self.rpc_port}",
-                f"--rpc-secret={self.rpc_secret}",
-                "--file-allocation=none",
-                "--enable-mmap=true",
-                f"--save-session={os.devnull}",
-                f"--input-file={os.devnull}",
-                "-d", self.download_folder
-            ]
-            if self.is_supporting_range:
-                cmd.extend([
-                    f"-x{self.segments_count}",
-                    f"-s{self.segments_count}"
-                ])
-            else:
-                self.start_pulsing()
-                cmd.extend([
-                    "-x1",
-                    "-s1",
-                    "--allow-overwrite=true",
-                    "--continue=false"
-                ])
-                            
-            if self.cookies:
-                clean_cookies = self.cookies.replace('\n', '').replace('\r', '').strip()
-                cmd.append(f"--header=Cookie: {clean_cookies}")
-            if self.user_agent: cmd.append(f"--user-agent={self.user_agent}")
-            if self.referer: cmd.append(f"--referer={self.referer}")
-
-        if self.limit_speed > 0:
-            cmd.append(f"--max-download-limit={int(self.limit_speed)}K")
-
-        self.aria_proc = subprocess.Popen(cmd, **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}))
+        if not self.is_torrent and not self.is_supporting_range:
+            GLib.idle_add(self.start_pulsing)
 
         def connect_aria():
             retries = self.app_settings.get("max_retries", 5)
@@ -2223,10 +2061,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
     def _init_aria_download(self, connect_func):
         self.aria_client = connect_func()
         if not self.aria_client:
-            print("aria2c_path ", addOn.FireFiles.aria2c_path)
             print("Failed to connect to Aria2 RPC")
-            if self.aria_proc:
-                self.aria_proc.terminate()
             GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
             GLib.idle_add(self.status_label.set_text, f"{tr('Connection Error')}(RPC)")
             GLib.idle_add(self.reset_ui)
@@ -2234,9 +2069,16 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         try:
             options = {}
+            options["dir"] = self.download_folder
+
             if self.is_torrent:
                 if self.torrent_indices:
                     options['select-file'] = self.torrent_indices
+                if self.app_settings.get("seed_limiting"):
+                    options["seed-ratio"] = self.app_settings.get("seed_ratio", "1.0")
+                    options["seed-time"] = self.app_settings.get("seed_time", "0")
+                if self.custom_trackers:
+                    options["bt-tracker"] = self.custom_trackers
             else:
                 output_path = os.path.join(self.download_folder, self.FileName)
                 self.aria2_control = output_path + ".aria2"
@@ -2249,6 +2091,15 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 options["continue"] = "true" if can_resume else "false"
                 options["split"] = str(self.segments_count) if self.is_supporting_range else "1"
                 options["max-connection-per-server"] = str(self.segments_count) if self.is_supporting_range else "1"
+                
+                if self.cookies:
+                    clean_cookies = self.cookies.replace('\n', '').replace('\r', '').strip()
+                    options["header"] = f"Cookie: {clean_cookies}"
+                if self.user_agent: options["user-agent"] = self.user_agent
+                if self.referer: options["referer"] = self.referer
+
+            if self.limit_speed > 0:
+                options["max-download-limit"] = f"{int(self.limit_speed)}K"
 
             self.current_download = self.aria_client.add_uris([self.url], options=options)
             
@@ -2276,9 +2127,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         except Exception as e:
             print(f"Error adding download: {e}")
-            if self.aria_proc:
-                self.aria_proc.terminate()
-                GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
+            GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
             GLib.idle_add(self.status_label.set_text, tr("Error adding download"))
             GLib.idle_add(self.reset_ui)
     
@@ -2287,8 +2136,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             UI_speed = ""
             UI_size_str = ""
             start_val = 0
-            GLib.idle_add(self.rebuild_progress_bar)
-            start_val = 0
+            
             try:
                 start_val = float(self.progress) / 100.0
             except (ValueError, TypeError):
@@ -2298,26 +2146,21 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.target_fraction = start_val
             new_target = 0
             self.animation_source_id = None
-            GLib.idle_add(self.progress_bars[0].set_fraction, self.current_fraction)
-
+            
+            GLib.idle_add(lambda: self.progress_bars[0].set_fraction(self.current_fraction) if self.progress_bars else False)
             GLib.idle_add(self.cancel_button.set_label, tr("Cancel"))
+            
+            self.monitor_running = True
 
             while True:
-                while not self.pause_event.is_set():
-                    if os.path.exists(self.lock_file):
-                        try: os.remove(self.lock_file)
-                        except: pass
-                    self.aria_proc.terminate()
-                    return
+                if not self.pause_event.is_set():
+                    time.sleep(0.5)
+                    continue
 
                 try:
                     self.current_download.update()
                 except Exception as e:
                     print(f"Update error: {e}")
-                    if os.path.exists(self.lock_file):
-                        try: os.remove(self.lock_file)
-                        except: pass
-                    self.aria_proc.terminate()
                     break
 
                 status = self.current_download.status
@@ -2353,11 +2196,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 else:
                     self.progress = 0.0
 
-                if total_len > 0:
-                    self.progress = round((aria_completed / total_len) * 100, 1)
-                else:
-                    self.progress = 0.0
-
                 self.size_str = addOn.parse_size(aria_completed)
 
                 is_seeding = self.current_download.seeder and status == "active" and self.progress >= 100
@@ -2378,12 +2216,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
                     ratio = uploaded / completed if completed > 0 else 0.0
                     
                     up_speed_str = self.current_download.upload_speed_string()
-
                     uploaded_str = addOn.parse_size(uploaded)
 
                     GLib.idle_add(self.status_label.set_markup, f"<b><span foreground='#00ACC1'>{tr('Seeding')}...</span></b> ({tr('Ratio')}: {ratio:.2f})")
-                    GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
-                    self.progress_bars[0].add_css_class("dashed-bar")
+                    
+                    GLib.idle_add(lambda: self.progress_bars[0].set_fraction(1.0) if self.progress_bars else False)
+                    GLib.idle_add(lambda: self.progress_bars[0].add_css_class("dashed-bar") if self.progress_bars else False)
                     
                     markup_text = (
                         f"{tr('Seeding')} | "
@@ -2426,7 +2264,23 @@ class DownloadWindow(Gtk.ApplicationWindow):
                             status = "error"
 
                     if status == "error":
-                        print(f"Aria2 Error: {self.current_download.error_message}")
+                        error_msg = str(self.current_download.error_message)
+                        print(f"Aria2 Error: {error_msg}")
+                        
+                        if "status=429" in error_msg and self.segments_count > 1:
+                            print("Server rejected multiple segments. Auto-retrying with 1 connection...")
+                            GLib.idle_add(self.status_label.set_text, tr("Server strict. Retrying with 1 connection..."))
+                            
+                            try:
+                                self.aria_client.remove([self.current_download], force=True, files=True, clean=True)
+                            except Exception:
+                                pass
+                            
+                            self.segments_count = 1
+                            GLib.idle_add(self.connections_spin.set_value, 1)
+                            threading.Thread(target=self.download_using_ARIA2, daemon=True).start()
+                            break
+                        
                         GLib.idle_add(self.status_label.set_text, tr("Error Occurred"))
                         def set_error_ui():
                             GLib.idle_add(self.reset_ui)
@@ -2434,6 +2288,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
                             self.download_button.set_label(tr("Retry"))
                         GLib.idle_add(set_error_ui)
                         return
+                        
                     if status == "active" and (self.is_supporting_range or self.is_torrent):
                         curr_conns = int(getattr(self.current_download, "connections", 0) or 0)
                         curr_speed = int(getattr(self.current_download, "download_speed", 0) or 0)
@@ -2452,11 +2307,12 @@ class DownloadWindow(Gtk.ApplicationWindow):
                                     status_text = tr("Stalled / No Peers")
                             is_verifying = True
                             self.update_download("Verifying Checksum", "--", "--")
-                            GLib.idle_add(self.progress_bars[0].add_css_class, "dashed-bar")
-                            GLib.idle_add(self.progress_bars[0].set_fraction, 1.0)
+                            
+                            GLib.idle_add(lambda: self.progress_bars[0].add_css_class("dashed-bar") if self.progress_bars else False)
+                            GLib.idle_add(lambda: self.progress_bars[0].set_fraction(1.0) if self.progress_bars else False)
                         else:
                             status_text = tr("Downloading...")
-                            self.progress_bars[0].remove_css_class("dashed-bar")
+                            GLib.idle_add(lambda: self.progress_bars[0].remove_css_class("dashed-bar") if self.progress_bars else False)
                             is_verifying = False
 
                         if self.status_label.get_text() != status_text:
@@ -2520,40 +2376,45 @@ class DownloadWindow(Gtk.ApplicationWindow):
             print(f"Monitor Loop Crash: {e}")
         
         finally:
-            if self.aria_proc:
-                self.aria_proc.terminate()
-                try:
-                    self.aria_proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    self.aria_proc.kill()
-            
+            self.monitor_running = False
             if self.current_download: 
                 is_finished_seeding = getattr(self.current_download, 'seeder', False)
                 if is_finished_seeding or self.current_download.status == "complete":
                     with self.lock:
                         if not self.is_torrent: GLib.idle_add(self.on_download_finished)
 
-    def download_using_CURL(self, start, end, index):
-        for bar in self.progress_bars:
-            bar.set_hexpand(True)
-        self.connections_spin.set_sensitive(False)
-        
-        part_file = self.part_files[index]
-        total_part_size = end - start + 1
-        
-        if not hasattr(self, 'segment_progress'):
-            self.segment_progress = {}
+    def download_using_CURL(self, start=0, end=None, index=0, is_headless=False):
+        GLib.idle_add(self.connections_spin.set_sensitive, False)
+        if is_headless:
+            target_file = self.output_file
+            GLib.idle_add(self.rebuild_progress_bar, True)
+            GLib.idle_add(self.status_label.set_text, tr("Downloading..."))
+            GLib.idle_add(self.start_pulsing)
+        else:
+            GLib.idle_add(self.rebuild_progress_bar)
+            target_file = self.part_files[index]
+            total_expected_size = end - start + 1
+            if not hasattr(self, 'segment_progress'):
+                self.segment_progress = {}
+
+        retries = self.app_settings.get("max_retries", 5)
 
         while True:
             if self.cancel_event.is_set():
                 return
 
-            already_downloaded = os.path.getsize(part_file) if os.path.exists(part_file) else 0
-            
-            if already_downloaded >= total_part_size:
-                break
+            already_downloaded = os.path.getsize(target_file) if os.path.exists(target_file) else 0
 
-            resume_from = start + already_downloaded
+            if not is_headless:
+                if already_downloaded >= total_expected_size:
+                    print(f"Part {index} already perfectly downloaded.")
+                    GLib.idle_add(self.progress_bars[index].set_fraction, 1.0)
+                    with self.lock:
+                        GLib.idle_add(self.on_segment_finished)
+                    return
+                resume_from = start + already_downloaded
+            else:
+                resume_from = already_downloaded 
 
             c = pycurl.Curl()
             c.setopt(c.URL, self.url)
@@ -2562,14 +2423,17 @@ class DownloadWindow(Gtk.ApplicationWindow):
             c.setopt(c.FAILONERROR, True)
             c.setopt(c.FORBID_REUSE, 1)
             c.setopt(c.BUFFERSIZE, 1024 * 128)
+
+            if not is_headless:
+                c.setopt(c.RANGE, f"{resume_from}-{end}")
+            elif resume_from > 0:
+                c.setopt(c.RANGE, f"{resume_from}-") 
+
+            if getattr(self, 'user_agent', None): c.setopt(c.USERAGENT, self.user_agent)
+            if getattr(self, 'cookies', None): c.setopt(c.COOKIEFILE, self.cookies)
+            if getattr(self, 'referer', None): c.setopt(c.REFERER, self.referer)
             
-            c.setopt(c.RANGE, f"{resume_from}-{end}")
-            
-            if self.user_agent: c.setopt(c.USERAGENT, self.user_agent)
-            if self.cookies: c.setopt(c.COOKIEFILE, self.cookies)
-            if self.referer: c.setopt(c.REFERER, self.referer)
-            
-            if self.limit_speed:
+            if getattr(self, 'limit_speed', None):
                 try:
                     speed_val = int(self.limit_speed)
                     if speed_val > 0:
@@ -2585,50 +2449,88 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 if self.cancel_event.is_set() or not self.pause_event.is_set():
                     return 1
 
-                current_total = already_downloaded + dlnow
-                self.segment_progress[index] = current_total
-
                 current_time = time.time()
                 if current_time - last_update_time > 0.2:
                     last_update_time = current_time
                     
-                    fraction = min(current_total / total_part_size, 1.0)
-                    GLib.idle_add(self.progress_bars[index].set_fraction, fraction)
-                    try:
-                        all_downloaded = sum(self.segment_progress.values())
-                        self.calculate_time(all_downloaded)
-                    except Exception:
-                        pass
+                    if is_headless:
+                        self.calculate_time(already_downloaded + dlnow)
+                    else:
+                        current_total = already_downloaded + dlnow
+                        self.segment_progress[index] = current_total
+                        fraction = min(current_total / total_expected_size, 1.0)
+                        
+                        GLib.idle_add(self.progress_bars[index].set_fraction, fraction)
+                        try:
+                            all_dl = sum(os.path.getsize(p) if os.path.exists(p) else 0 for p in self.part_files)
+                            self.calculate_time(all_dl)
+                        except Exception:
+                            pass
 
             c.setopt(c.XFERINFOFUNCTION, progress_callback)
 
             try:
-                with open(part_file, "ab") as f:
+                with open(target_file, 'ab') as f:
                     c.setopt(c.WRITEDATA, f)
                     c.perform()
-                    
+                
+                c.close()
+                break 
+
             except pycurl.error as e:
                 err_code, err_msg = e.args[0], e.args[1]
+                c.close()
                 
                 if err_code == pycurl.E_ABORTED_BY_CALLBACK:
-                    print("Download paused cleanly by user.")
+                    if not self.pause_event.is_set():
+                        mode = "Headless" if is_headless else f"Segment {index}"
+                        print(f"Download ({mode}) paused safely.")
                     return 
-                else:
-                    print(f"PycURL Error {err_code}: {err_msg}")
-                    if "resolve" in str(err_msg).lower() or "timeout" in str(err_msg).lower() or "connect" in str(err_msg).lower():
-                        GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
-                        GLib.idle_add(self.download_button.set_label, tr("No internet connection. Please reconnect"))
-                    
-                    GLib.idle_add(self.reset_ui)
-                    if os.path.exists(self.lock_file):
-                        try: os.remove(self.lock_file)
-                        except: pass
-                    return
-            finally:
-                c.close()
+                
+                if retries > 0:
+                    if err_code == 22 and "429" in str(err_msg):
+                        wait_time = 5 + random.uniform(0.0, 3.0)
+                        if is_headless: GLib.idle_add(self.status_label.set_text, f"Rate limited. Retrying...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"Connection dropped. Retrying in 2s... ({retries} left)")
+                        retries -= 1
+                        time.sleep(2)
+                        continue
 
-        with self.lock:
-            GLib.idle_add(self.on_segment_finished)
+                print(f"Task failed permanently. Aborting.")
+                self.pause_event.clear() 
+                self.download_started = False
+                
+                if "resolve" in str(err_msg).lower() or "timeout" in str(err_msg).lower() or "connect" in str(err_msg).lower():
+                    GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
+                    GLib.idle_add(self.download_button.set_label, tr("No internet connection."))
+                else:
+                    GLib.idle_add(self.status_label.set_text, tr("Server rejected multiple connections."))
+                
+                GLib.idle_add(self.reset_ui)
+                if is_headless: self.stop_pulsing()
+                return
+
+        if is_headless:
+            self.stop_pulsing()
+            if not self.cancel_event.is_set():
+                with self.lock:
+                    GLib.idle_add(self.on_segment_finished)
+        else:
+            final_size = os.path.getsize(target_file) if os.path.exists(target_file) else 0
+            if final_size >= total_expected_size:
+                print(f"Part {index} verified on disk! Size matches perfectly.")
+                with self.lock:
+                    GLib.idle_add(self.on_segment_finished)
+            else:
+                print(f"CRITICAL: Part {index} dropped prematurely! ({final_size}/{total_expected_size} bytes)")
+                if not self.cancel_event.is_set() and self.pause_event.is_set():
+                    self.pause_event.clear() 
+                    GLib.idle_add(self.download_button.add_css_class, "btn_cancel")
+                    GLib.idle_add(self.download_button.set_label, tr("Connection dropped. Please resume."))
+                    GLib.idle_add(self.reset_ui)
 
     def download_using_YTDLP(self):
         self.connections_spin.set_sensitive(False)
@@ -2986,9 +2888,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.est_time_label.set_visible(False)
         self.download_started = False
 
-        if os.path.exists(self.lock_file):
-            os.remove(self.lock_file)
-
         if self.is_yt_dlp:
             path = addOn.find_active_part_yt_dlp(self.FileName, self.download_folder)
             if path and os.path.exists(path):
@@ -2999,30 +2898,30 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.update_download("Finished", "--", "--", finished_downloading=True)
         
         if self.app_settings.get("notifications"):
-           title = tr("Download Finished")
-           body = f"{self.FileName}"
+            title = tr("Download Finished")
+            body = f"{self.FileName}"
 
-           if os.name == 'nt':
-               try:
-                   from winotify import Notification
-                   icon_path = os.path.abspath("icon.png")
+            if os.name == 'nt':
+                try:
+                    from winotify import Notification
+                    icon_path = os.path.join(addOn.FireFiles.icons_dir, "flameget_about_dialog.png")
 
-                   toast = Notification(
-                       app_id="FlameGet",
-                       title="Download Finished",
-                       msg="Your video has been downloaded!",
-                       icon=icon_path
-                   )
+                    toast = Notification(
+                        app_id="FlameGet",
+                        title="Download Finished",
+                        msg="Your video has been downloaded!",
+                        icon=icon_path
+                    )
 
-                   toast.show()
-               except:
-                   print(f"Windows doesn't support modern Action Center toasts.")
-                   
-           else:
-               notification = Gio.Notification.new(title)
-               notification.set_body(body)
-               notification.set_icon(Gio.ThemedIcon.new("emblem-ok-symbolic"))
-               self.get_application().send_notification("download-complete", notification)
+                    toast.show()
+                except:
+                    print(f"Windows doesn't support modern Action Center toasts.")
+                    
+            else:
+                notification = Gio.Notification.new(title)
+                notification.set_body(body)
+                notification.set_icon(Gio.ThemedIcon.new("emblem-ok-symbolic"))
+                self.get_application().send_notification("download-complete", notification)
 
         self.cleanup_torrent_unwanted_files()
         if not self.is_torrent and hasattr(self, 'checksum_entry'):
@@ -3063,17 +2962,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
             self.pause_button.set_label(tr("Start Seeding"))
             self.status_label.set_text(tr("Paused Seeding"))
             self.pause_download()
-            if os.path.exists(self.lock_file):
-                try: os.remove(self.lock_file)
-                except: pass
         else:
-            if not os.path.exists(self.lock_file):
-                self.lock_file = self.output_file + '.lock'
-                open(self.lock_file, 'w').close()
-            else:
-                self.status_label.set_label(tr("File is Already Downloading!"))
-                self.status_label.set_name("red-text")
-                return
             self.is_paused = False
             self.progress_bars[0].set_visible(True)
             self.pause_event.set()
@@ -3086,65 +2975,47 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
     def on_pause_clicked(self, button):
         if self.pause_event.is_set():
-            GLib.idle_add(self.pause_button.set_sensitive,False)
+            GLib.idle_add(self.pause_button.set_sensitive, False)
             self.pause_event.clear()
             self.is_paused = True
             self.pause_button.set_label(tr("Updating..."))
             self.status_label.set_text(tr("Paused."))
             self.download_started = False
             self.pause_download()
-            if os.path.exists(self.lock_file):
-                try: os.remove(self.lock_file)
-                except: pass
+            
+            if getattr(self, 'download_engine', '') == "aria2" and hasattr(self, 'current_download'):
+                try:
+                    self.current_download.pause(force=True)
+                except Exception as e:
+                    print(f"Failed to pause aria2 download: {e}")
+
             GLib.timeout_add(100, lambda: self.show_pause_button("Resume"))
         else:
-            if not os.path.exists(self.lock_file):
-                self.lock_file = self.output_file + '.lock'
-                open(self.lock_file, 'w').close()
-            else:
-                self.status_label.set_label(tr("File is Already Downloading!"))
-                self.status_label.set_name("red-text")
-                return
             self.is_paused = False
-            GLib.idle_add(self.pause_button.set_sensitive,False)
-            self.pause_event.set()
-            self.pause_button.set_label(tr("Updating..."))
-            self.status_label.set_text(tr("Downloading..."))
-            self.download_started = True
-            self.is_canceled = False
-            self.editFileName_entry.set_sensitive(False)
-            self.folder_entry.set_sensitive(False)
-            self.download_button.set_visible(False)
-            self.select_folder_button.set_sensitive(False)
-            self.cancel_button.set_visible(True)
-            self.progress_box.set_visible(True)
-            self.est_time_label.set_visible(True)
-            self.pause_button.set_visible(True)
+            GLib.idle_add(self.pause_button.set_sensitive, False)
+            GLib.idle_add(self.pause_button.set_label, tr("Updating..."))
+            self.download_UI_started("Downloading...")
             
             self.completed_threads = 0
-            if self.is_yt_dlp:
+            if getattr(self, 'is_yt_dlp', False):
                 threading.Thread(target=self.download_using_YTDLP).start()
-            elif self.download_engine == "aria2":
-                threading.Thread(target=self.download_using_ARIA2).start()
+            elif getattr(self, 'download_engine', '') == "aria2":
+                if hasattr(self, 'current_download'):
+                    def _bg_resume():
+                        try:
+                            self.current_download.resume()
+                            if not getattr(self, 'monitor_running', False):
+                                threading.Thread(target=self.monitor_aria_rpc, daemon=True).start()
+                        except Exception as e:
+                            print(f"Failed to resume aria2 download: {e}")
+                    
+                    threading.Thread(target=_bg_resume, daemon=True).start()
             else:
                 for i in range(self.segments_count):
-                    part_path = self.part_files[i]
-                    original_start = i * self.segment_size
-                    end = self.file_size_bytes - 1 if i == self.segments_count - 1 else (original_start + self.segment_size - 1)
+                    start = i * self.segment_size
+                    end = self.file_size_bytes - 1 if i == self.segments_count - 1 else (start + self.segment_size - 1)
+                    threading.Thread(target=self.resume_download_segment, args=(start, end, i)).start()
 
-                    if os.path.exists(part_path):
-                        downloaded = os.path.getsize(part_path)
-                    else:
-                        downloaded = 0
-
-                    if downloaded >= (end - original_start + 1):
-                        self.completed_threads += 1
-                        print(f"Part {i} already downloaded. Skipping.")
-                        continue
-
-                    start = original_start + downloaded
-                    if start <= end:
-                        threading.Thread(target=self.resume_download_segment, args=(start, end, i)).start()
             GLib.timeout_add(100, lambda: self.show_pause_button("Pause"))
     
         return False
@@ -3168,6 +3039,25 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.progress_box.set_visible(False)
         self.est_time_label.set_visible(False)
         return False
+    def download_UI_started(self, status_label):
+        self.download_started = True
+        self.is_canceled = False
+        self.start_time = time.time()
+        self.pause_event.set()
+        self.cancel_event.clear()
+
+        GLib.idle_add(self.connections_spin.set_sensitive, False)
+        GLib.idle_add(self.speed_limit_entry.set_sensitive, False)
+        GLib.idle_add(self.editFileName_entry.set_sensitive, False)
+        GLib.idle_add(self.folder_entry.set_sensitive, False)
+        GLib.idle_add(self.download_button.set_visible, False)
+        GLib.idle_add(self.select_folder_button.set_sensitive, False)
+        GLib.idle_add(self.cancel_button.set_visible, True)
+        GLib.idle_add(self.progress_box.set_visible, True)
+        GLib.idle_add(self.est_time_label.set_visible, True)
+        if self.is_supporting_range or self.is_torrent: GLib.idle_add(self.pause_button.set_visible, True)
+        GLib.idle_add(self.status_label.set_name, "")
+        GLib.idle_add(self.status_label.set_text, tr(status_label))
 
     def calculate_time(self, downloaded):
         elapsed = time.time() - self.start_time
@@ -3357,9 +3247,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         self.is_completed = False
         self.download_started = False
         self.download_button.set_label(tr("Download"))
-        if hasattr(self, 'aria_proc'):
-            self.aria_proc.terminate()
-            self.aria_proc.wait(timeout=2)
         if self.delete_files_also_check_btn.get_active():
             if self.is_torrent:
                 if hasattr(self, 'meta_path') and os.path.exists(self.meta_path):
@@ -3552,14 +3439,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
         except Exception as e:
             print(f"Tray update failed: {e}")
 
-    def is_port_free(self, port):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(('', port))
-                return True
-            except OSError:
-                return False
-
     def set_cursor_for_widget(self, widget, cursor_name="pointer"):
         cursor = Gdk.Cursor.new_from_name(cursor_name)
         widget.set_cursor(cursor)
@@ -3702,11 +3581,11 @@ class DownloaderAppManager(Gtk.Application):
         parser.add_argument("--cookies", type=str, default=None, help="Path to cookies file")
         parser.add_argument("--user-agent", type=str, default=None, help="User agent string")
         parser.add_argument("--referer", type=str, default=None, help="Referer URL")
-        parser.add_argument("--pass_check", action="store_true", default=False, help="Pass the URL check")
         parser.add_argument("--check_256sum", type=str, default=None, help="Pass 256sum to check integrity")
         
         # Parse from index 1 to ignore the executable name itself which is very fat on the ram
         args, _ = parser.parse_known_args(args_list[1:])
+        current_progress = 0
 
         try:
             if args.torrent_data and args.torrent_data != "None":
@@ -3716,10 +3595,18 @@ class DownloaderAppManager(Gtk.Application):
         except json.JSONDecodeError:
             print("Error: Could not parse torrent data JSON.")
             torrent_data_list = []
+
+        # ugly but very beautiful inside
+        if args.id == -1:
+            safe_filename = addOn.check_and_fix_filename(addOn.FireFiles.db, args.file_directory, args.file_name)
+        else:
+            safe_filename = args.file_name
+            current_progress = addOn.get_progress_from_db(addOn.FireFiles.db, args.file_directory, safe_filename)
+
         win = DownloadWindow(
             app_manager=self,
             url=args.file_url, 
-            FileName=args.file_name, 
+            FileName=safe_filename, 
             file_size=int(args.file_size), 
             file_directory=args.file_directory, 
             segments=args.segments, 
@@ -3738,8 +3625,8 @@ class DownloaderAppManager(Gtk.Application):
             cookies=args.cookies,
             user_agent=args.user_agent,
             referer=args.referer,
-            pass_check=args.pass_check,
-            check_256sum=args.check_256sum
+            check_256sum=args.check_256sum,
+            current_progress=current_progress
         )
         if os.name == 'nt': 
             unique_title = f"FlameGet Downloader - {win.port}"

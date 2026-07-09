@@ -276,7 +276,8 @@
         "Filename cannot end with a space or period.": "Le nom de fichier ne peut pas se terminer par un espace ou un point.",
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "Le nom de fichier contient des caractères invalides (ex : \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "Métadonnées introuvables. Torrent inactif ou délai dépassé.",
-        "Failed to download torrent file.": "Échec du téléchargement du fichier torrent."
+        "Failed to download torrent file.": "Échec du téléchargement du fichier torrent.",
+        "Specific Category Locations": "Emplacements spécifiques par catégorie"
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -555,7 +556,8 @@
         "Filename cannot end with a space or period.": "El nombre de archivo no puede terminar con un espacio o un punto.",
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "El nombre de archivo contiene caracteres inválidos (ej., \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "Metadatos no encontrados. Torrent inactivo o tiempo de espera agotado.",
-        "Failed to download torrent file.": "Error al descargar el archivo torrent."
+        "Failed to download torrent file.": "Error al descargar el archivo torrent.",
+        "Specific Category Locations": "Ubicaciones específicas por categoría"
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -834,7 +836,8 @@
         "Filename cannot end with a space or period.": "Имя файла не может заканчиваться пробелом или точкой.",
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "Имя файла содержит недопустимые символы (напр., \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "Метаданные не найдены. Торрент мертв или время ожидания истекло.",
-        "Failed to download torrent file.": "Не удалось скачать торрент-файл."
+        "Failed to download torrent file.": "Не удалось скачать торрент-файл.",
+        "Specific Category Locations": "Расположения для конкретных категорий"
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -1113,6 +1116,7 @@
         "Filename cannot end with a space or period.": "لا يمكن أن ينتهي اسم الملف بمسافة أو نقطة.",
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "اسم الملف يحتوي على رموز غير صالحة (مثال: \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "لم يتم العثور على البيانات الوصفية. التورنت ميت أو انتهت المهلة.",
-        "Failed to download torrent file.": "فشل في تحميل ملف التورنت."
+        "Failed to download torrent file.": "فشل في تحميل ملف التورنت.",
+        "Specific Category Locations": "مواقع الفئات المحددة"
     }
 }
