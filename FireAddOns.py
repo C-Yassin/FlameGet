@@ -47,6 +47,8 @@ class _FileManager():
         self.binaries_path = os.path.join(self.install_dir, "binaries")
         self.themes_path = os.path.join(self.install_dir, "themes")
         self.configs_path = os.path.join(self.install_dir, "configs")
+        self.user_themes = os.path.join(self.config_dir, "themes")
+        self.user_configs = os.path.join(self.config_dir, "configs")
 
         if self.is_compiled:
             self.tray_script_path = os.path.join(self.binaries_path,  "tray.exe" if os.name =="nt" else "tray.bin")
@@ -77,11 +79,11 @@ class _FileManager():
         system_themes = os.path.join(self.install_dir, *internal_node, "themes")
         system_configs = os.path.join(self.install_dir, *internal_node, "configs")
         
-        user_themes = os.path.join(self.config_dir, "themes")
-        user_configs = os.path.join(self.config_dir, "configs")
+        self.user_themes = os.path.join(self.config_dir, "themes")
+        self.user_configs = os.path.join(self.config_dir, "configs")
 
-        os.makedirs(user_themes, exist_ok=True)
-        os.makedirs(user_configs, exist_ok=True)
+        os.makedirs(self.user_themes, exist_ok=True)
+        os.makedirs(self.user_configs, exist_ok=True)
 
         def copy_missing_files(src_dir, dst_dir):
             if not os.path.exists(src_dir):
@@ -100,12 +102,12 @@ class _FileManager():
                     except Exception as e:
                         print(f"Failed to copy missing file {item}: {e}")
 
-        copy_missing_files(system_themes, user_themes)
-        copy_missing_files(system_configs, user_configs)
+        copy_missing_files(system_themes, self.user_themes)
+        copy_missing_files(system_configs, self.user_configs)
 
         for css_file in ["dark_style.css", "light_style.css"]:
             sys_css = os.path.join(system_themes, css_file)
-            user_css = os.path.join(user_themes, css_file)
+            user_css = os.path.join(self.user_themes, css_file)
             
             if os.path.exists(sys_css) and os.path.exists(user_css):
                 if not filecmp.cmp(sys_css, user_css, shallow=False):
@@ -116,7 +118,7 @@ class _FileManager():
                         print(f"Failed to update {css_file}: {e}")
 
         sys_trans = os.path.join(system_configs, "translations.json")
-        user_trans = os.path.join(user_configs, "translations.json")
+        user_trans = os.path.join(self.user_configs, "translations.json")
         
         if os.path.exists(sys_trans) and os.path.exists(user_trans):
             if not filecmp.cmp(sys_trans, user_trans, shallow=False):
@@ -161,11 +163,13 @@ class UNITS():
         if os.name == 'nt':
             base_data = os.getenv('LOCALAPPDATA', os.path.expanduser('~'))
             RUNTIME_DIR = os.path.join(base_data, "flameget", "run")
-            os.makedirs(RUNTIME_DIR, exist_ok=True)
-            return RUNTIME_DIR
         else:
-            return os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-        
+            base_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+            RUNTIME_DIR = os.path.join(base_dir, "flameget")
+            
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        return RUNTIME_DIR
+
     SIZE_RE = re.compile(r"/([0-9.]+)([KMG]i?)B", re.I)
     
     RUNTIME_DIR = get_temp_dir()

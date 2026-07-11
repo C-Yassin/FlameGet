@@ -183,11 +183,15 @@ class SilentUpdater:
 
     def _fetch_and_compare(self):
         try:
-            req = urllib.request.Request(API_URL, headers={'User-Agent': 'FlameGet-Updater'})
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
+            }
+            req = urllib.request.Request(API_URL, headers=headers)
             
             safe_context = ssl.create_default_context(cafile=certifi.where())
             
-            with urllib.request.urlopen(req, context=safe_context) as response:
+            with urllib.request.urlopen(req, context=safe_context, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 latest_version = data.get("tag_name")
 

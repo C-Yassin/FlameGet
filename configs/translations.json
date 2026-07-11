@@ -277,7 +277,11 @@
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "Le nom de fichier contient des caractères invalides (ex : \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "Métadonnées introuvables. Torrent inactif ou délai dépassé.",
         "Failed to download torrent file.": "Échec du téléchargement du fichier torrent.",
-        "Specific Category Locations": "Emplacements spécifiques par catégorie"
+        "Specific Category Locations": "Emplacements spécifiques par catégorie",
+        "Your Torrent file has been downloaded!": "Votre fichier Torrent a été téléchargé !",
+        "Your file has been downloaded!": "Votre fichier a été téléchargé !",
+        "Your video has been downloaded!": "Votre vidéo a été téléchargée !",
+        "Server rejected multiple connections.": "Le serveur a rejeté les connexions multiples."
     },
     "es": {
         "General": "General", "Network": "Red", "Appearance": "Apariencia", "File Name": "Nombre del Archivo", "Segments": "Segmentos", "Mode": "Modo",
@@ -557,7 +561,11 @@
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "El nombre de archivo contiene caracteres inválidos (ej., \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "Metadatos no encontrados. Torrent inactivo o tiempo de espera agotado.",
         "Failed to download torrent file.": "Error al descargar el archivo torrent.",
-        "Specific Category Locations": "Ubicaciones específicas por categoría"
+        "Specific Category Locations": "Ubicaciones específicas por categoría",
+        "Your Torrent file has been downloaded!": "¡Su archivo Torrent ha sido descargado!",
+        "Your file has been downloaded!": "¡Su archivo ha sido descargado!",
+        "Your video has been downloaded!": "¡Su video ha sido descargado!",
+        "Server rejected multiple connections.": "El servidor rechazó múltiples conexiones."
     },
     "ru": {
         "General": "Общие", "Network": "Сеть", "Appearance": "Внешний вид", "File Name": "Имя файла", "Segments": "Сегменты", "Mode": "Режим",
@@ -837,7 +845,11 @@
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "Имя файла содержит недопустимые символы (напр., \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "Метаданные не найдены. Торрент мертв или время ожидания истекло.",
         "Failed to download torrent file.": "Не удалось скачать торрент-файл.",
-        "Specific Category Locations": "Расположения для конкретных категорий"
+        "Specific Category Locations": "Расположения для конкретных категорий",
+        "Your Torrent file has been downloaded!": "Ваш торрент-файл загружен!",
+        "Your file has been downloaded!": "Ваш файл загружен!",
+        "Your video has been downloaded!": "Ваше видео загружено!",
+        "Server rejected multiple connections.": "Сервер отклонил множественные подключения."
     },
     "ar": {
         "General": "عام", "Network": "الشبكة", "Appearance": "المظهر", "File Name": "اسم الملف", "Segments": "أجزاء", "Mode": "الوضع",
@@ -1117,6 +1129,10 @@
         "Filename contains invalid characters (e.g., \\ / : * ? \" < > |).": "اسم الملف يحتوي على رموز غير صالحة (مثال: \\ / : * ? \" < > |).",
         "Metadata was not found. Torrent dead or timed out.": "لم يتم العثور على البيانات الوصفية. التورنت ميت أو انتهت المهلة.",
         "Failed to download torrent file.": "فشل في تحميل ملف التورنت.",
-        "Specific Category Locations": "مواقع الفئات المحددة"
+        "Specific Category Locations": "مواقع الفئات المحددة",
+        "Your Torrent file has been downloaded!": "تم تحميل ملف التورنت الخاص بك!",
+        "Your file has been downloaded!": "تم تحميل ملفك!",
+        "Your video has been downloaded!": "تم تحميل الفيديو الخاص بك!",
+        "Server rejected multiple connections.": "رفض الخادم الاتصالات المتعددة."
     }
 }

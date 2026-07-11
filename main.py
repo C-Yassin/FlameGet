@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os
+import sys, os, glob
 
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 
@@ -34,7 +34,7 @@ requests = addOn.lazy_import("requests")
 WINDOWS_PORT = 18597
 WINDOWS_TRAY_PORT = 18598
 if is_flatpak_env:
-    SOCKET_PATH = "\0flameget_dm_tray"
+    SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "\0flameget_dm_tray")
 else:
     SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_dm_tray.sock")
 HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
@@ -1632,20 +1632,8 @@ class FlameGetManager(Gtk.Application):
         self.show_toast_popup(tr("Database purged."))
 
     def execute_reset_settings(self):
-        files_to_remove = [
-            "settings.json", 
-            "translations.json", 
-            "dark_style.css", 
-            "light_style.css", 
-            "custom_style.css"
-        ]
-        
-        for filename in files_to_remove:
-            user_path = os.path.join(addOn.FireFiles.config_dir, filename)
-            if os.path.exists(user_path):
-                try: os.remove(user_path)
-                except: pass
-                    
+        shutil.rmtree(addOn.FireFiles.user_configs, ignore_errors=True)
+        shutil.rmtree(addOn.FireFiles.user_themes, ignore_errors=True)
         addOn.FireFiles.setup_settings()
         GLib.idle_add(self.emergency_cleanup, None, None)
 
@@ -4034,8 +4022,8 @@ class FlameGetManager(Gtk.Application):
 
         self.db.conn.commit()
 
+    # ONLY FOR WINDOWS
     def send_command(self, cmd, target_socket=None):
-        # ONLY FOR WINDOWS
         try:
             if target_socket:
                 if os.path.exists(target_socket):
@@ -4076,14 +4064,9 @@ class FlameGetManager(Gtk.Application):
                 continue
             elif item.category == "Torrent":
                 is_torrent = True
-            pid = int(item.pid)
-            if HAS_SIGUSR1 and item.status == "Paused" and pid > 0:
-                try:
-                    os.kill(pid, signal.SIGUSR1)
-                    print("Resumed existing process!")
-                    continue 
-                except OSError:
-                    pass
+            if item.status == "Paused":  
+                self.process_signal(item) 
+                return
             try:
                 worker_env = os.environ.copy()
                 worker_env["FLAMEGET_WORKER"] = "downloader"
@@ -4137,68 +4120,53 @@ class FlameGetManager(Gtk.Application):
         for i in range(selection.get_size()):
             idx = selection.get_nth(i)
             item = model.get_item(idx)
-            if item: 
-                items_to_process.append(item)
-
-        cursor = self.db.conn.cursor()
+            if item: items_to_process.append(item)
 
         for item in items_to_process:
             if item.finished_downloading and item.category != "Torrent":
                 continue
-
-            try:
-                pid = int(item.pid)
-                lock_file = os.path.join(item.file_directory, item.filename) + '.lock'
-            except (ValueError, TypeError):
-                continue
-
-            if pid <= 0 or not addOn.is_pid_alive(pid):
-                continue
-
-            try:
-                if os.name != 'nt' and is_flatpak_env:
-                    downloader_sock = f"\0flameget_dl_{pid}"
-                else:
-                    downloader_sock = os.path.join(addOn.UNITS.RUNTIME_DIR, f"flameget_dl_{pid}.sock")
-
-                new_status = "Stopped" if kill else "Paused"
-
-                if kill:
-                    print(f"Stopping PID {pid} for {item.filename}")
-                    if os.name == 'nt':
-                        self.send_command("stop", target_socket=downloader_sock)
-                    else:
-                        os.kill(pid, signal.SIGTERM)
-                else:
-                    if item.status != "Paused":
-                        print(f"Pausing PID {pid} for {item.filename}")
-                        if os.name == 'nt':
-                            if HAS_SIGUSR1:
-                                self.send_command("pause", target_socket=downloader_sock)
-                            else: 
-                                self.send_command("stop", target_socket=downloader_sock)
-                                new_status = "Stopped"
-                        else:
-                            if HAS_SIGUSR1:
-                                print(f"Pausing (SIGUSR1) PID {pid} for {item.filename}")
-                                os.kill(pid, signal.SIGUSR1)
-                            else:
-                                os.kill(pid, signal.SIGTERM) 
-                                new_status = "Stopped"
-                
-                cursor.execute("UPDATE downloads SET status = ? WHERE id = ?", (new_status, item.id))
-                
-                item.status = new_status
-                item.notify("status-prop")
-                if os.path.exists(lock_file): os.remove(lock_file)
-                        
-            except ProcessLookupError:
-                pass
-            except Exception as e:
-                print(f"Failed to signal PID {pid}: {e}")
+            self.process_signal(item, kill)
         
-        self.db.conn.commit()
         GLib.idle_add(self.update_stats_labels)
+
+    def process_signal(self, item, kill=False):
+        pid = int(item.pid)
+        print("called!")
+        if pid <= 0 or not addOn.is_pid_alive(pid):
+            print("pid is dead!")
+            return
+        print("started logic!")
+        if os.name == 'nt':
+            search_pattern = os.path.join(addOn.UNITS.RUNTIME_DIR, f"flameget_dl_{pid}_*.sock")
+            matches = glob.glob(search_pattern)
+            
+            if matches: downloader_sock = matches[0]
+
+        new_status = "Stopped" if kill else "Paused"
+
+        if kill:
+            print(f"Stopping PID {pid} for {item.filename}")
+            if os.name == 'nt':
+                self.send_command("stop", target_socket=downloader_sock)
+            else:
+                os.kill(pid, signal.SIGTERM)
+        else:
+            if os.name == 'nt':
+                self.send_command("pause", target_socket=downloader_sock)
+            else:
+                if HAS_SIGUSR1:
+                    print(f"Pausing (SIGUSR1) PID {pid} for {item.filename}")
+                    os.kill(pid, signal.SIGUSR1)
+                else:
+                    os.kill(pid, signal.SIGTERM) 
+                    new_status = "Stopped"
+            
+        item.status = new_status
+        item.notify("status-prop")
+
+        cursor = self.db.conn.cursor()
+        cursor.execute("UPDATE downloads SET status = ? WHERE id = ?", (new_status, item.id))
+        self.db.conn.commit()
 
     def show_toast_popup(self, message, duration=3000, color="green_toast"):
         if not self.app_settings.get("enable_toasts"):
@@ -5048,10 +5016,11 @@ class FlameGetManager(Gtk.Application):
         sys.exit(0)
 
     def stop_tray_subprocess(self):
-        if os.name != "nt":
-            TRAY_SOCKET_PATH = f"{"\0" if is_flatpak_env else ""}flameget_tray_listener{"" if is_flatpak_env else ".sock"}"
+        if is_flatpak_env:
+            TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "\0flameget_tray_listener")
         else:
             TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
+
         try:
             if os.name == 'nt':
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:

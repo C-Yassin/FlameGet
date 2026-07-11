@@ -35,20 +35,20 @@ if os.name == 'nt':
 
 dynamic_binaries = []
 if os.name == 'nt':
-    dynamic_binaries.append(('binaries/aria2c.exe', 'binaries'))
-    dynamic_binaries.append(('binaries/tray.exe', 'binaries'))
+    dynamic_binaries.append(('../binaries/aria2c.exe', 'binaries'))
+    dynamic_binaries.append(('../binaries/tray.exe', 'binaries'))
 else:
-    dynamic_binaries.append(('binaries/tray.bin', 'binaries'))
+    dynamic_binaries.append(('../binaries/tray.bin', 'binaries'))
 
 a = Analysis(
-    ['main.py'],
-    pathex=[actual_packages_path, '.'],
+    ['../main.py'],
+    pathex=[actual_packages_path, '..'],
     binaries=dynamic_binaries,
     datas=[
-        ('repo-data/LICENSE', '.'),
-        ('icons', 'icons'),
-        ('themes', 'themes'),
-        ('configs', 'configs'),
+        ('../repo-data/LICENSE', '.'),
+        ('../icons', 'icons'),
+        ('../configs', 'configs'),
+        ('../themes', 'themes'),
     ],
     hiddenimports=dynamic_hidden_imports,
     hookspath=[],
@@ -64,7 +64,7 @@ a = Analysis(
         'setuptools', 
         'pkg_resources', 
         'tkinter',
-        'unittest'
+        'unittest',
         'yt_dlp.extractor.lazy_extractors'
     ],
     noarchive=False,
@@ -198,7 +198,7 @@ elif system() == "Windows":
             [],
             exclude_binaries=True,
             name='FlameGet',
-            icon='repo-data/icon.ico',
+            icon='../icons/icon.ico',
             debug=False,
             bootloader_ignore_signals=False,
             strip=False,
@@ -227,7 +227,7 @@ elif system() == "Windows":
             a.datas,
             [],
             name='FlameGet',
-            icon='repo-data/icon.ico',
+            icon='../icons/icon.ico',
             debug=False,
             bootloader_ignore_signals=False,
             strip=False,
@@ -249,11 +249,11 @@ def force_delete(func, path, excinfo):
 app_folder = os.path.join(DISTPATH, 'FlameGet')
 internal_folder = os.path.join(app_folder, '_internal') 
 
-source_icons = os.path.abspath(os.path.join(SPECPATH, 'icons'))
+source_icons = os.path.abspath(os.path.join(SPECPATH, '..', 'icons'))
 target_icons = os.path.abspath(os.path.join(app_folder, 'icons'))
 internal_icons = os.path.abspath(os.path.join(internal_folder, 'icons'))
 
-source_binaries = os.path.abspath(os.path.join(SPECPATH, 'binaries'))
+source_binaries = os.path.abspath(os.path.join(SPECPATH, '..', 'binaries'))
 target_binaries = os.path.abspath(os.path.join(app_folder, 'binaries'))
 internal_binaries = os.path.abspath(os.path.join(internal_folder, 'binaries'))
 

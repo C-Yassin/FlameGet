@@ -2,8 +2,8 @@ PyGObject
 Flask
 pycurl
 yt-dlp
-requests
 waitress
+requests
 aria2p
 psutil
 yt-dlp-get-pot-rustypipe

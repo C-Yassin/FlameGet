@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import socket
 import signal
-import os, sys
+import os, shutil, atexit
 import json
 import threading
 
@@ -26,16 +26,24 @@ def get_temp_dir():
     if os.name == 'nt':
         base_data = os.getenv('LOCALAPPDATA', os.path.expanduser('~'))
         RUNTIME_DIR = os.path.join(base_data, "flameget", "run")
-        os.makedirs(RUNTIME_DIR, exist_ok=True)
-        return RUNTIME_DIR
     else:
-        return os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        base_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        RUNTIME_DIR = os.path.join(base_dir, "flameget")
+        
+    os.makedirs(RUNTIME_DIR, exist_ok=True)
+    return RUNTIME_DIR
 
 runtime_dir = get_temp_dir()
 
+def cleanup_run_environment():
+    if os.path.exists(runtime_dir):
+        shutil.rmtree(runtime_dir, ignore_errors=True)
+
+atexit.register(cleanup_run_environment)
+
 if is_flatpak_env:
-    MAIN_APP_SOCKET = "\0flameget_dm_tray"
-    TRAY_SOCKET_PATH = "\0flameget_tray_listener"
+    MAIN_APP_SOCKET = os.path.join(runtime_dir, "\0flameget_dm_tray")
+    TRAY_SOCKET_PATH = os.path.join(runtime_dir, "\0flameget_tray_listener")
 else:
     MAIN_APP_SOCKET = os.path.join(runtime_dir, "flameget_dm_tray.sock")
     TRAY_SOCKET_PATH = os.path.join(runtime_dir, "flameget_tray_listener.sock")
@@ -54,14 +62,8 @@ class TrayApp:
             else:
                 self.config_dir = os.path.expanduser("~/.config/flameget")
             
-        self.is_compiled = getattr(sys, 'frozen', False) or "__compiled__" in globals()
-        
-        if self.is_compiled:
-            self.current_exe = sys.executable
-            self.install_dir = os.path.dirname(self.current_exe)
-        else:
-            self.current_exe = sys.executable
-            self.install_dir = os.path.dirname(os.path.abspath(__file__))
+        self.is_compiled = "__compiled__" in globals()
+        self.install_dir = os.path.dirname(os.path.abspath(__file__))
 
         configs_path = os.path.join(self.config_dir, "configs") 
 
@@ -98,17 +100,25 @@ class TrayApp:
 
         self.start_server()
 
-    def get_resource_path(self, relative_path):
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.dirname(os.path.abspath(__file__))
+    def get_icon_path(self, icon_filename):
+        root_path = os.path.join(self.install_dir, icon_filename)
+        if os.path.exists(root_path):
+            return root_path
+        
+        icons_path = os.path.join(self.install_dir, "icons", icon_filename)
+        if os.path.exists(icons_path):
+            return icons_path
             
+        return None
+
+    def get_resource_path(self, relative_path):
+        base_path = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_path, relative_path)
 
     def setup_windows_tray(self):
-        possible_file = os.path.join(self.icons_dir, "flameget.png")
-        if os.path.exists(possible_file):
+        possible_file = self.get_icon_path("flameget.png")
+        
+        if possible_file:
             image = Image.open(possible_file)
         else:
             image = Image.new('RGB', (64, 64), color=(73, 109, 137))
@@ -185,29 +195,20 @@ class TrayApp:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         
         icon_widget = None
-        is_compiled = getattr(sys, 'frozen', False) or "__compiled__" in globals()
         
-        if is_compiled:
-            current_exe = sys.executable
-            install_dir = os.path.dirname(current_exe)
-            possible_file = os.path.join(install_dir, icon_name + ".svg")
-        else:
-            possible_file = os.path.join(self.icons_dir, icon_name + ".svg")
+        possible_file = self.get_icon_path(icon_name + ".svg")
 
-        if os.path.exists(possible_file):
+        if possible_file:
             try:
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(possible_file, 16, 16, True)
                 icon_widget = Gtk.Image.new_from_pixbuf(pixbuf)
             except Exception as e:
                 if self.icon_theme.has_icon(icon_name):
                     icon_widget = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
-
         elif self.icon_theme.has_icon(icon_name):
             icon_widget = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
-        
         elif self.icon_theme.has_icon(fallback_name):
             icon_widget = Gtk.Image.new_from_icon_name(fallback_name, Gtk.IconSize.MENU)
-        
         else:
             icon_widget = Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.MENU)
 
@@ -229,7 +230,6 @@ class TrayApp:
         box.show_all()
         
         item.connect('activate', callback)
-        
         return item
 
     def start_server(self):
@@ -402,7 +402,9 @@ class TrayApp:
                     s.sendall(cmd.encode('utf-8'))
                     
         except (ConnectionRefusedError, FileNotFoundError):
-            print(f"Target not running? ({target_socket})")
+            # Fix the print here to see the real path that failed
+            failed_path = target_socket if target_socket else (WINDOWS_MAIN_PORT if os.name == 'nt' else MAIN_APP_SOCKET)
+            print(f"Target not running? ({failed_path})")
         except OSError as e:
             print(f"Socket error while sending command: {e}")
 
@@ -414,7 +416,8 @@ class TrayApp:
                 downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
             self.send_command("toggle_pid", target_socket=downloader_sock)
         else:
-            self.send_command("toggle_pid", target_socket=int(port))
+            downloader_sock = os.path.join(runtime_dir, f"flameget_dl_{pid}_{port}.sock")
+            self.send_windows_command("toggle_pid", target_socket=downloader_sock)
 
     def send_windows_command(self, cmd, target_socket=None):
         try:
@@ -459,7 +462,7 @@ class TrayApp:
                     defaults.update(data)
                     return defaults
             except json.JSONDecodeError as e:
-                print(f"Settings file is empty or corrupted ({e}). Recreating defaults...")
+                print(f"Settings file is empty or corrupted ({e})")
             except Exception as e:
                 print(f"Error loading settings: {e}")
                 
