@@ -1,10 +1,10 @@
 <div align="center">
   <a href="https://c-yassin.github.io/Fireweb/" target="_blank">
-    <img width="180" src="https://github.com/C-Yassin/FlameGet/blob/main/repo-data/flameget.svg" alt="FlameGet Logo">
+    <img width="180" src="https://raw.githubusercontent.com/C-Yassin/FlameGet/main/repo-data/flameget.svg" alt="FlameGet Logo">
   </a>
 </div>
 <h1 align="center">
-  <img src="https://github.com/C-Yassin/FlameGet/blob/main/repo-data/logo.svg" alt="FlameGet">
+  <img src="https://raw.githubusercontent.com/C-Yassin/FlameGet/main/repo-data/logo.svg" alt="FlameGet">
 </h1>
 <p align="center">
   <a href="https://flathub.org/en/apps/io.github.C_Yassin.FlameGet"><img alt="Flathub" src="https://img.shields.io/badge/Flathub-Available-purple?logo=flatpak"></a>
