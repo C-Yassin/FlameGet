@@ -52,14 +52,13 @@
     </screenshots>
 
     <releases>
-        <release version="v1.4" date="2026-06-05">
+        <release version="v1.5" date="2026-07-12">
             <description>
-                <p>Added Automatic download categorization, where files are saved to different folders (issue #10)</p>
-                <p>Added Scheduled download queue with priority and bandwidth limits (issue #9)</p>
-                <p>Added WebSockets protocol (wss://)</p>
-                <p>Fixed some ghost database columns and some issues and bugs in it.</p>
-                <p>Fixed Torrent urls and Torrent-related downloading.</p>
-                <p>Fixed some micro-bugs.</p>
+                <p>Fully reworked system tray (Flatpak, linux, windows)</p>
+                <p>Reworked Aria2c and PyCurl Integration</p>
+                <p>Fixed crashes on APPIMAGE versions</p>
+                <p>Cleaner Repository.</p>
+                <p>Easier steps to build the app.</p>
             </description>
         </release>
     </releases>
