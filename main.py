@@ -34,7 +34,7 @@ requests = addOn.lazy_import("requests")
 WINDOWS_PORT = 18597
 WINDOWS_TRAY_PORT = 18598
 if is_flatpak_env:
-    SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "\0flameget_dm_tray")
+    SOCKET_PATH = "\0flameget_dm_tray"
 else:
     SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_dm_tray.sock")
 HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
@@ -5017,7 +5017,7 @@ class FlameGetManager(Gtk.Application):
 
     def stop_tray_subprocess(self):
         if is_flatpak_env:
-            TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "\0flameget_tray_listener")
+            TRAY_SOCKET_PATH = "\0flameget_tray_listener"
         else:
             TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
 
