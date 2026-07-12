@@ -3,19 +3,22 @@ import sys, os, glob
 
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 
-if os.name == "nt":
-    from multiprocessing import freeze_support
-    if __name__ == '__main__':
+if __name__ == '__main__':
+    if os.name == "nt":
+        from multiprocessing import freeze_support
         freeze_support() 
-        worker_type = os.environ.get("FLAMEGET_WORKER")
-        if "downloader" == worker_type:
-            import downloader
-            downloader.main()
-            sys.exit(0)
-        elif "browser" == worker_type:
-            import browser_context_menu_handler
-            browser_context_menu_handler.main()
-            sys.exit(0)
+    
+    worker_type = os.environ.get("FLAMEGET_WORKER")
+    
+    if worker_type == "downloader":
+        import downloader
+        downloader.main()
+        sys.exit(0)
+        
+    elif worker_type == "browser":
+        import browser_context_menu_handler
+        browser_context_menu_handler.main()
+        sys.exit(0)
 
 os.environ['GSK_RENDERER'] = 'cairo'
 import gi, signal, subprocess, shutil, json, re, socket, threading, tempfile
