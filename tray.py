@@ -85,6 +85,10 @@ class TrayApp:
                 Gtk.Widget.set_default_direction(Gtk.TextDirection.RTL)
             else:
                 Gtk.Widget.set_default_direction(Gtk.TextDirection.LTR)
+
+            self.icon_theme = Gtk.IconTheme.get_default()
+            if self.icon_theme and os.path.exists(self.icons_dir):
+                self.icon_theme.append_search_path(self.icons_dir)
             
             self.indicator = AppIndicator3.Indicator.new(
                 APP_ID,
@@ -93,10 +97,6 @@ class TrayApp:
             )
             self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
             self.indicator.set_secondary_activate_target(None)
-            self.icon_theme = Gtk.IconTheme.get_default()
-            if self.icon_theme and os.path.exists(self.icons_dir):
-                self.icon_theme.append_search_path(self.icons_dir)
-            
             self.setup_menu()
 
         self.start_server()
