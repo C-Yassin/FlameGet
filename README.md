@@ -51,8 +51,6 @@ FlameGet is officially available on the Arch User Repository (AUR). You can inst
 ```bash
 git clone https://aur.archlinux.org/flameget.git
 cd flameget
-````
-```bash
 makepkg -si 
 ```
 ### Manual Installation
@@ -72,6 +70,7 @@ For other Linux distributions, ensure you have the required dependencies install
 3.  Build the application:<br>
     *Windows (.exe) & Linux (.AppImage):*
     ```bash
+    cd build
     python build.py
     ```
 ## Browser Extensions
