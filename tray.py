@@ -43,8 +43,8 @@ def cleanup_run_environment():
 atexit.register(cleanup_run_environment)
 
 if is_flatpak_env:
-    MAIN_APP_SOCKET = os.path.join(runtime_dir, "\0flameget_dm_tray")
-    TRAY_SOCKET_PATH = os.path.join(runtime_dir, "\0flameget_tray_listener")
+    MAIN_APP_SOCKET = "\0flameget_dm_tray"
+    TRAY_SOCKET_PATH = "\0flameget_tray_listener"
 else:
     MAIN_APP_SOCKET = os.path.join(runtime_dir, "flameget_dm_tray.sock")
     TRAY_SOCKET_PATH = os.path.join(runtime_dir, "flameget_tray_listener.sock")
