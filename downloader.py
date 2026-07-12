@@ -19,7 +19,7 @@ pycurl = addOn.lazy_import("pycurl")
 requests = addOn.lazy_import("requests")
 is_flatpak_env = 'FLATPAK_ID' in os.environ or os.path.exists('/.flatpak-info')
 if is_flatpak_env:
-    TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "\0flameget_tray_listener")
+    TRAY_SOCKET_PATH = "\0flameget_tray_listener"
 else:
     TRAY_SOCKET_PATH = os.path.join(addOn.UNITS.RUNTIME_DIR, "flameget_tray_listener.sock")
 
