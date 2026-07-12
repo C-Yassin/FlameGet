@@ -30,14 +30,15 @@ def get_temp_dir():
         base_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
         RUNTIME_DIR = os.path.join(base_dir, "flameget")
         
-    os.makedirs(RUNTIME_DIR, exist_ok=True)
+    if not is_flatpak_env: os.makedirs(RUNTIME_DIR, exist_ok=True)
     return RUNTIME_DIR
 
 runtime_dir = get_temp_dir()
 
 def cleanup_run_environment():
-    if os.path.exists(runtime_dir):
-        shutil.rmtree(runtime_dir, ignore_errors=True)
+    if not is_flatpak_env:
+        if os.path.exists(runtime_dir):
+            shutil.rmtree(runtime_dir, ignore_errors=True)
 
 atexit.register(cleanup_run_environment)
 
