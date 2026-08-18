@@ -11,6 +11,7 @@ import argparse
 import shutil
 import json, tempfile
 import hashlib
+from urllib.parse import urlparse, unquote
 from SaveManager import load_css, load_settings, save_settings, tr
 import FireAddOns as addOn
 
@@ -206,6 +207,7 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         saved_dir = self.app_settings.get("default_download_dir")
         
+        self.file_directory = file_directory
         self.download_folder = self.get_download_dir(file_directory, saved_dir)
 
         self.output_file = os.path.join(self.download_folder, self.FileName)
@@ -363,6 +365,25 @@ class DownloadWindow(Gtk.ApplicationWindow):
 
         self.destroy()
 
+    def get_server_filename(self, url):
+        headers = {}
+        if self.user_agent: headers["User-Agent"] = self.user_agent
+        if self.cookies: headers["Cookie"] = self.cookies.replace('\n', '').replace('\r', '').strip()
+        if self.referer: headers["Referer"] = self.referer
+
+        try:
+            response = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
+            cd = response.headers.get('Content-Disposition')
+            response.close()
+
+            if cd and 'filename=' in cd:
+                m = re.search(r'filename=["\']?([^"\';]+)["\']?', cd)
+                if m: return os.path.basename(m.group(1))
+        except Exception as e:
+            print(f"Error getting the name from the server: {e}")
+
+        return ""
+
     def get_file_info(self, url):
         if self.download_playlist:
             return True, 0, "Playlist", 202
@@ -516,7 +537,6 @@ class DownloadWindow(Gtk.ApplicationWindow):
                         m = re.search(r'filename=["\']?([^"\';]+)["\']?', cd)
                         if m: filename = m.group(1)
                     else:
-                        from urllib.parse import urlparse
                         parsed = urlparse(response.url)
                         name = os.path.basename(parsed.path)
                         if name: filename = name
@@ -550,6 +570,16 @@ class DownloadWindow(Gtk.ApplicationWindow):
                 self.file_size_bytes = file_size
             else:
                 self.is_supporting_range = True
+                # get_file_info never ran here, so the name is still the one guessed from the url
+                if self.download_id == -1 and self.FileName == unquote(os.path.basename(urlparse(url).path)):
+                    filename = self.get_server_filename(url)
+                    if filename:
+                        self.FileName = filename
+                        self.base, self.original_ext = os.path.splitext(self.FileName)
+                        self.category = addOn.categorize_filename(self.FileName)
+                        folder = self.get_download_dir(self.file_directory, self.app_settings.get("default_download_dir"))
+                        GLib.idle_add(self.folder_entry.set_text, folder)
+                        GLib.idle_add(self.editFileName_entry.set_text, self.FileName)
 
             self.category = addOn.categorize_filename(self.FileName)
             
