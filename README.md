@@ -81,7 +81,7 @@ You can download the browser extension to integrate FlameGet natively with your 
   <a href="https://chromewebstore.google.com/detail/flameget-integration/aimiiaimkiflihoccgfkjdpadboaldim">
     <img alt="Chrome Extension" src="https://upload.wikimedia.org/wikipedia/commons/e/e1/Google_Chrome_icon_%28February_2022%29.svg" height="48">
   </a>
-  <a href="https://addons.mozilla.org/en-US/firefox/addon/flameget-integration/">
+  <a href="https://addons.mozilla.org/firefox/addon/flameget-integration/">
     <img alt="Firefox Add-on" src="https://upload.wikimedia.org/wikipedia/commons/a/a0/Firefox_logo%2C_2019.svg" height="48">
   </a>
 </p>
